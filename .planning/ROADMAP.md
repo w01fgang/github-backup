@@ -29,6 +29,11 @@
 
 **Depends on**: nothing
 
+**Plans:** 3 plans
+- [ ] 01-01-foundation-PLAN.md — Extract scripts/lib helpers, add scripts/destroy-droplet.ts, wire all three new npm scripts
+- [ ] 01-02-verify-script-PLAN.md — Implement scripts/verify/phase-1.ts (D-07 four assertion groups)
+- [ ] 01-03-smoke-test-PLAN.md — Implement scripts/smoke-test.ts and run end-to-end against real DO + real GitHub user
+
 ---
 
 ### Phase 2: Monitoring
