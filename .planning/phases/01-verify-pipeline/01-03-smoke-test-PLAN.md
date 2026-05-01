@@ -6,6 +6,7 @@ wave: 3
 depends_on: ["01-01", "01-02"]
 files_modified:
   - scripts/smoke-test.ts
+  - droplet/github-backup.sh
 autonomous: false
 requirements:
   - PROV-01
@@ -42,8 +43,16 @@ must_haves:
 Implement TEST-01 (D-03/D-04/D-05/D-08) and prove all five ROADMAP Phase 1 success criteria against real DigitalOcean infrastructure using the operator's real GitHub user (D-01) at the 100%-pass bar (D-02).
 
 Purpose: turn the drafted-but-unverified codebase into a green-baseline. After this plan ships, every future phase inherits a known-good Phase 1.
-Output: scripts/smoke-test.ts + a documented green run + verify:phase-1 exit 0.
+Output: scripts/smoke-test.ts + the BACKUP_SUMMARY marker line in droplet/github-backup.sh + a documented green run + verify:phase-1 exit 0.
 </objective>
+
+<rationale>
+Plan-checker Issue 4 — chose **Option A (smaller bash diff)**: emit `BACKUP_SUMMARY upstream=N mirrored=M failed=F` as the final log line in `droplet/github-backup.sh`. Both smoke-test (step 8) and verify:phase-1 (Group 3) parse this line.
+
+Why not Option B (extract user-vs-org into shared `scripts/lib/github-source.ts` + bash function): would require sourcing TS-derived data into bash, or duplicating the detection in two languages. Option A is one new `log` call (~1 line of bash), no shared-source plumbing.
+
+Bash diff scope: ONE line added (the `log "BACKUP_SUMMARY ..."` call) immediately before the existing `if [[ "${FAIL}" -gt 0 ]]` block. The script's `SUCCESS`/`FAIL`/`TOTAL` counters already exist (lines 97, 106–107, 127, 130, 139, 142). No control-flow change.
+</rationale>
 
 <execution_context>
 @$HOME/.claude/get-shit-done/workflows/execute-plan.md
@@ -74,10 +83,22 @@ import { loadConfig, loadDropletInfo, bail } from "./lib/config";
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Implement scripts/smoke-test.ts</name>
-  <files>scripts/smoke-test.ts</files>
+  <name>Task 1: Add BACKUP_SUMMARY marker to github-backup.sh + implement scripts/smoke-test.ts</name>
+  <files>droplet/github-backup.sh, scripts/smoke-test.ts</files>
   <action>
-Create `scripts/smoke-test.ts` per D-03/D-04/D-05/D-08. CLI:
+**Step 0 — Add BACKUP_SUMMARY marker to `droplet/github-backup.sh` (plan-checker Issue 4 — Option A):**
+
+The script already tracks `SUCCESS` and `FAIL` counters and `TOTAL` (the upstream repo count from `gh api --paginate`). Add ONE log line on the success path, immediately before the existing `if [[ "${FAIL}" -gt 0 ]]; then exit 1; fi` block (around line 152):
+
+```bash
+log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
+```
+
+This emits a final-line summary parsed by both smoke-test step 8 and verify:phase-1 Group 3. Source-of-truth for the upstream count stays in bash (one user-vs-org detection, two parsers). No other change to `github-backup.sh` — keep its existing exit logic intact (still exits 1 if `FAIL > 0`, but the marker is logged regardless so the parser sees the failure counts).
+
+**Step 1 onward — Create `scripts/smoke-test.ts` per D-03/D-04/D-05/D-08:**
+
+CLI:
 
 ```
 tsx scripts/smoke-test.ts [--fresh]
@@ -92,11 +113,12 @@ Behavior:
 5. **Trigger backup remotely (BACKUP-01, BACKUP-02, ROADMAP §3):** `sshRun(ip, user, keyPath, "/opt/github-backups/github-backup.sh")` — wait for completion. Capture exit code. Non-zero aborts.
 6. **SSH-probe one mirror:** `runCapture("ssh ... 'ls -1d /opt/github-backups/*.git | head -n1'")` — assert at least one `.git` directory exists. Save the picked repo name.
 7. **Clone-probe locally (ACCESS-01, ROADMAP §4):** `mkdtemp` a tmpdir; `git clone <user>@<ip>:/opt/github-backups/<repo>.git <tmpdir>/<repo>` — assert exit 0; assert `git rev-parse HEAD` resolves to a 40-char hex; assert `git for-each-ref | wc -l` > 0. Clean up tmpdir on success only.
-8. **100% pass enforcement (D-02):** before exiting 0, also assert via SSH that the count of `.git` directories in `/opt/github-backups/` equals the count of repos returned by `gh api` for the configured user/org. Use:
-   - `ssh ... "ls -1d /opt/github-backups/*.git | wc -l"` → mirror count
-   - `ssh ... "source /opt/github-backups/backup.env && gh api --paginate \"users/$GITHUB_USER_OR_ORG/repos\" --jq 'length' | awk '{s+=\$1} END {print s}'"` → expected count
-   - If `github-backup.sh` already detects user-vs-org, mirror that detection (use the same `gh api` paths the backup script uses; grep `droplet/github-backup.sh` for the exact endpoints).
-   - Assert mirror count == expected count. Any discrepancy fails the smoke run with a list of which repo names are missing.
+8. **100% pass enforcement (D-02) via BACKUP_SUMMARY marker (plan-checker Issue 4 — Option A):** parse the marker line emitted by `droplet/github-backup.sh` (see Step 0 below for the bash diff). After step 5's trigger completes:
+   - `runCapture("ssh ... 'tail -n 50 /var/log/github-backup.log'")` → stdout.
+   - Match against `/^\[.*\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/m`. Bail if no match (the bash diff did not run or did not reach its summary line).
+   - Assert `mirrored === upstream && failed === 0`. On divergence, print `SMOKE: FAIL — upstream=<U> mirrored=<M> failed=<F>; see /var/log/github-backup.log on droplet` and exit 1.
+   - Cross-check: `runCapture("ssh ... 'ls -1d /opt/github-backups/*.git | wc -l'")` returns a number == `mirrored`.
+   - Do NOT re-derive upstream count via `gh api` in TS — that would duplicate the user-vs-org detection at `droplet/github-backup.sh` lines 71–85. The bash script is the source of truth for the count.
 9. On all-pass, print "SMOKE: PASS — droplet preserved at <ip>" and exit 0. The droplet is intentionally left alive (D-04, D-08).
 
 Per D-05: reuse the same `config.json` + `GITHUB_TOKEN` env contract. Do NOT introduce a separate test config.
@@ -106,12 +128,14 @@ Per CONTEXT.md "Integration Points": you may either spawn the existing entrypoin
 Per CONTEXT.md "Established Patterns": follow `set -euo pipefail` strictness — first failed assertion = `process.exit(1)`.
   </action>
   <verify>
-    <automated>npx tsc --noEmit -p tsconfig.json && grep -E "create-droplet|bootstrap-droplet|github-backup\.sh|git clone|--fresh" scripts/smoke-test.ts | wc -l | awk '{ if($1<5) exit 1 }'</automated>
+    <automated>bash -c 'set -euo pipefail; npx tsc --noEmit -p tsconfig.json; grep -q "BACKUP_SUMMARY upstream=" droplet/github-backup.sh || { echo "github-backup.sh missing BACKUP_SUMMARY marker line (plan-checker Issue 4 contract)"; exit 1; }; grep -q "BACKUP_SUMMARY" scripts/smoke-test.ts || { echo "smoke-test.ts must parse BACKUP_SUMMARY marker"; exit 1; }; n=$(grep -cE "create-droplet|bootstrap-droplet|github-backup\.sh|git clone|--fresh" scripts/smoke-test.ts); [ "$n" -ge 5 ] || { echo "smoke-test.ts orchestration markers <5 (got $n)"; exit 1; }'</automated>
   </verify>
   <done>
+- droplet/github-backup.sh emits exactly one BACKUP_SUMMARY line on every run (success and failure paths)
 - scripts/smoke-test.ts exists and type-checks
 - Implements --fresh flag (calls destroy-droplet --yes)
-- Orchestrates create → bootstrap → trigger → ssh-probe → clone-probe → 100% mirror-count assertion
+- Orchestrates create → bootstrap → trigger → ssh-probe → clone-probe → BACKUP_SUMMARY parse (mirrored == upstream && failed == 0)
+- Does NOT re-derive upstream count via gh api in TS (single source of truth: bash)
 - Bails if GITHUB_TOKEN missing
 - Default run preserves the droplet
   </done>

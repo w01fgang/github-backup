@@ -10,6 +10,8 @@ files_modified:
   - scripts/lib/ssh.ts
   - scripts/lib/doctl.ts
   - scripts/lib/config.ts
+  - scripts/create-droplet.ts
+  - scripts/bootstrap-droplet.ts
 autonomous: true
 requirements:
   - TEST-01
@@ -157,7 +159,7 @@ Per D-09: scope is droplet + firewall + .droplet.json only. Do NOT attempt to re
 Per Claude's Discretion (auto-mode): include `--yes` flag because the smoke runner's `--fresh` path needs non-interactive destroy.
   </action>
   <verify>
-    <automated>npx tsc --noEmit -p tsconfig.json && node -e "require('child_process').execSync('npx tsx scripts/destroy-droplet.ts', { stdio: 'pipe' })" 2>&1 | grep -q "\.droplet\.json not found"</automated>
+    <automated>npx tsc --noEmit -p tsconfig.json && bash -c 'set -o pipefail; out=$(npx tsx scripts/destroy-droplet.ts 2>&1); rc=$?; [ $rc -ne 0 ] || { echo "expected non-zero exit, got 0"; exit 1; }; echo "$out" | grep -q "\.droplet\.json not found" || { echo "expected refusal message missing; full output: $out"; exit 1; }'</automated>
   </verify>
   <done>
 - scripts/destroy-droplet.ts exists and type-checks
