@@ -1,0 +1,15 @@
+{
+  "name": "github-backup",
+  "version": "1.0.0",
+  "description": "Fire-and-forget GitHub repository mirror backup to a DigitalOcean droplet.",
+  "private": true,
+  "scripts": {
+    "create-droplet": "tsx scripts/create-droplet.ts",
+    "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}

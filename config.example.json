@@ -1,0 +1,23 @@
+{
+  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable.",
+
+  "region": "nyc3",
+  "size": "s-1vcpu-1gb",
+  "image": "ubuntu-22-04-x64",
+
+  "dropletName": "github-backup",
+  "firewallName": "github-backup-fw",
+
+  "sshKeyFingerprint": "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99",
+  "sshKeyPath": "~/.ssh/id_rsa",
+  "sshUser": "root",
+
+  "githubUserOrOrg": "myusername",
+
+  "backupDir": "/opt/github-backups",
+  "cronSchedule": "30 3 * * *",
+
+  "allowedSSHCidr": "YOUR_PUBLIC_IP/32",
+
+  "tags": ["github-backup"]
+}
