@@ -14,29 +14,15 @@
  *   - config.json present               (copy from config.example.json)
  */
 
-import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { Config, DropletInfo, bail, loadConfig } from "./lib/config";
+import { runCapture, sleep } from "./lib/ssh";
+import { doctlJson, first, publicIp } from "./lib/doctl";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types
+// Local types (doctl shapes; not exported)
 // ─────────────────────────────────────────────────────────────────────────────
-
-interface Config {
-  region: string;
-  size: string;
-  image: string;
-  dropletName: string;
-  firewallName: string;
-  sshKeyFingerprint: string;
-  sshKeyPath: string;
-  sshUser: string;
-  githubUserOrOrg: string;
-  backupDir: string;
-  cronSchedule: string;
-  allowedSSHCidr: string;
-  tags?: string[];
-}
 
 interface DropletNetwork {
   ip_address: string;
@@ -56,95 +42,9 @@ interface FirewallRecord {
   droplet_ids: number[];
 }
 
-/** Persisted to .droplet.json after successful creation. */
-interface DropletInfo {
-  id: number;
-  ip: string;
-  name: string;
-  region: string;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Utility helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function bail(msg: string): never {
-  console.error(`\n❌  ${msg}\n`);
-  process.exit(1);
-}
-
-function loadConfig(): Config {
-  const p = path.resolve(process.cwd(), "config.json");
-  if (!fs.existsSync(p)) {
-    bail(
-      "config.json not found.\n" +
-        "    Copy config.example.json → config.json and fill in your values."
-    );
-  }
-  const cfg = JSON.parse(fs.readFileSync(p, "utf8")) as Config;
-  const required: (keyof Config)[] = [
-    "region",
-    "size",
-    "image",
-    "dropletName",
-    "firewallName",
-    "sshKeyFingerprint",
-    "sshKeyPath",
-    "sshUser",
-    "githubUserOrOrg",
-    "backupDir",
-    "cronSchedule",
-    "allowedSSHCidr",
-  ];
-  for (const k of required) {
-    if (!cfg[k]) bail(`config.json is missing required field: "${k}"`);
-  }
-  return cfg;
-}
-
-/**
- * Run a shell command silently (all output captured).
- * Returns trimmed stdout. Throws a descriptive Error on non-zero exit.
- */
-function runCapture(cmd: string): string {
-  try {
-    return execSync(cmd, { encoding: "utf8", stdio: "pipe" }).trim();
-  } catch (err: unknown) {
-    const detail =
-      err instanceof Error
-        ? (err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? err.message
-        : String(err);
-    throw new Error(`Command failed:\n  ${cmd}\n  ${detail}`);
-  }
-}
-
-/** Run a doctl command and parse its JSON output. */
-function doctlJson<T>(cmd: string): T {
-  const raw = runCapture(cmd);
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    throw new Error(`Failed to parse JSON from:\n  ${cmd}\n  Output: ${raw}`);
-  }
-}
-
-/** Parse a doctl JSON response that may return either an array or a single object. */
-function first<T>(cmd: string): T {
-  const result = doctlJson<T | T[]>(cmd);
-  return Array.isArray(result) ? (result as T[])[0] : (result as T);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Droplet
 // ─────────────────────────────────────────────────────────────────────────────
-
-function publicIp(d: DropletRecord): string | undefined {
-  return d.networks?.v4?.find((n) => n.type === "public")?.ip_address;
-}
 
 /**
  * Poll doctl until the droplet is "active" with a public IP.
