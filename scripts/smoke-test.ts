@@ -1,0 +1,288 @@
+#!/usr/bin/env node
+/**
+ * scripts/smoke-test.ts
+ *
+ * End-to-end smoke runner for Phase 1 (TEST-01 / D-03 / D-04 / D-05 / D-08).
+ *
+ * Orchestrates the live pipeline against real DigitalOcean infrastructure
+ * and the operator's real GitHub user (D-01) at the 100%-pass bar (D-02):
+ *
+ *   1. (optional --fresh) destroy any existing droplet
+ *   2. provision via npm run create-droplet                (PROV-01)
+ *   3. bootstrap via npm run bootstrap-droplet             (PROV-02 + BACKUP-03)
+ *   4. trigger /opt/github-backups/github-backup.sh remotely (BACKUP-01/02)
+ *   5. SSH-probe — confirm at least one *.git mirror exists  (BACKUP-02)
+ *   6. clone-probe — git clone one mirror over SSH locally  (ACCESS-01)
+ *   7. parse BACKUP_SUMMARY marker — enforce 100% pass     (D-02)
+ *
+ * Default behaviour leaves the droplet alive (D-04, D-08). Re-runnable.
+ *
+ * Usage:
+ *   npm run smoke-test
+ *   npm run smoke-test -- --fresh
+ *
+ * Required env: GITHUB_TOKEN (passed through to bootstrap).
+ */
+
+import { spawnSync } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { bail, loadConfig, loadDropletInfo } from "./lib/config";
+import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
+
+/** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 step 0). */
+const BACKUP_SUMMARY_RE =
+  /^\[.*\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/m;
+
+const REMOTE_DIR = "/opt/github-backups";
+const REMOTE_LOG = "/var/log/github-backup.log";
+const REMOTE_BACKUP = `${REMOTE_DIR}/github-backup.sh`;
+
+function hasFlag(name: string): boolean {
+  return process.argv.slice(2).includes(name);
+}
+
+/**
+ * Run another npm script in this project. Streams output. Returns exit code.
+ * No throw — caller decides whether non-zero is fatal (destroy is best-effort,
+ * create + bootstrap are fatal).
+ */
+function runNpmScript(scriptName: string, extraArgs: string[] = []): number {
+  const args = ["run", scriptName];
+  if (extraArgs.length > 0) {
+    args.push("--", ...extraArgs);
+  }
+  const r = spawnSync("npm", args, {
+    stdio: "inherit",
+    env: process.env,
+  });
+  if (r.error) {
+    bail(`Failed to spawn 'npm ${args.join(" ")}': ${r.error.message}`);
+  }
+  return r.status ?? 1;
+}
+
+/**
+ * Run a remote command via SSH and return trimmed stdout.
+ * Mirrors the single-quote wrapping contract of sshRun — callers must not
+ * include `'` in remoteCmd. Throws on non-zero.
+ */
+function sshCapture(
+  ip: string,
+  user: string,
+  keyPath: string,
+  remoteCmd: string
+): string {
+  return runCapture(`ssh ${sshFlags(keyPath)} ${user}@${ip} '${remoteCmd}'`);
+}
+
+/**
+ * Step 1: --fresh teardown. Best-effort: a missing .droplet.json (no prior
+ * droplet) is expected and not an error. Spawns destroy-droplet --yes.
+ */
+function maybeFreshReset(): void {
+  if (!hasFlag("--fresh")) return;
+  console.log("\n🧹  --fresh: destroying any existing droplet first…");
+  const code = runNpmScript("destroy-droplet", ["--yes"]);
+  if (code !== 0) {
+    console.log(
+      `   destroy-droplet exited ${code} — ignoring (likely no prior droplet).`
+    );
+  }
+}
+
+/** Step 2: provision via npm run create-droplet. PROV-01. Fatal on non-zero. */
+function provision(): void {
+  console.log("\n🚀  Provisioning droplet (npm run create-droplet)…");
+  const code = runNpmScript("create-droplet");
+  if (code !== 0) bail(`create-droplet failed (exit ${code})`);
+}
+
+/** Step 4: bootstrap via npm run bootstrap-droplet. PROV-02 + BACKUP-03. */
+function bootstrap(): void {
+  if (!process.env["GITHUB_TOKEN"]) {
+    bail(
+      "GITHUB_TOKEN environment variable is not set.\n" +
+        "    Usage: GITHUB_TOKEN=<your_pat> npm run smoke-test"
+    );
+  }
+  console.log("\n📦  Bootstrapping droplet (npm run bootstrap-droplet)…");
+  const code = runNpmScript("bootstrap-droplet");
+  if (code !== 0) bail(`bootstrap-droplet failed (exit ${code})`);
+}
+
+/** Step 5: trigger backup remotely. BACKUP-01 / BACKUP-02. Synchronous. */
+function triggerBackup(ip: string, user: string, keyPath: string): void {
+  console.log(`\n🔁  Triggering ${REMOTE_BACKUP} on droplet (synchronous)…`);
+  try {
+    sshRun(ip, user, keyPath, REMOTE_BACKUP);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    bail(`Remote github-backup.sh failed: ${msg}`);
+  }
+}
+
+/**
+ * Step 6: SSH-probe — return the path of one mirror on the droplet.
+ * Verifies at least one *.git directory exists in REMOTE_DIR.
+ */
+function pickRemoteMirror(ip: string, user: string, keyPath: string): string {
+  const out = sshCapture(
+    ip,
+    user,
+    keyPath,
+    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | head -n 1`
+  );
+  if (!out) {
+    bail(
+      `SSH-probe failed: no *.git mirror found in ${REMOTE_DIR} on droplet`
+    );
+  }
+  console.log(`   SSH-probe: found mirror ${out}`);
+  return out;
+}
+
+/**
+ * Step 7: clone-probe locally over SSH. ACCESS-01.
+ * mkdtemps a unique dir, clones, asserts HEAD + refs, cleans up on success.
+ */
+function cloneProbe(
+  ip: string,
+  user: string,
+  keyPath: string,
+  remoteMirrorPath: string
+): void {
+  const remoteName = path.basename(remoteMirrorPath); // e.g. owner_name.git
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-backup-smoke-"));
+  const localTarget = path.join(tmpDir, remoteName);
+  const gitSshCmd = `ssh ${sshFlags(keyPath)}`;
+  const cloneUrl = `${user}@${ip}:${remoteMirrorPath}`;
+
+  console.log(`\n📥  Clone-probe: cloning ${cloneUrl} into ${localTarget}…`);
+  try {
+    runVisible(
+      `GIT_SSH_COMMAND='${gitSshCmd}' git clone "${cloneUrl}" "${localTarget}"`
+    );
+
+    const head = runCapture(`git -C "${localTarget}" rev-parse HEAD`);
+    if (!/^[0-9a-f]{40}$/.test(head)) {
+      bail(`clone-probe: HEAD is not a 40-char hex (got "${head}")`);
+    }
+
+    const refsCount = parseInt(
+      runCapture(
+        `git -C "${localTarget}" for-each-ref | wc -l`
+      ).trim(),
+      10
+    );
+    if (!Number.isFinite(refsCount) || refsCount <= 0) {
+      bail(`clone-probe: cloned repo has no refs (got ${refsCount})`);
+    }
+
+    console.log(
+      `   Clone-probe OK — HEAD=${head.slice(0, 12)} refs=${refsCount}`
+    );
+
+    // Cleanup only on success — failures stay inspectable (T-01-07).
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `   Clone-probe failed; tmpdir preserved at ${tmpDir} for inspection.`
+    );
+    bail(`clone-probe: ${msg}`);
+  }
+}
+
+/**
+ * Step 8: parse BACKUP_SUMMARY from tail of /var/log/github-backup.log.
+ * Enforce mirrored == upstream && failed == 0 (D-02). Cross-check filesystem
+ * count of *.git dirs == mirrored.
+ *
+ * Bash is the single source of truth for the upstream count — we do NOT
+ * re-derive it via gh api here.
+ */
+function enforcePassBar(ip: string, user: string, keyPath: string): void {
+  console.log("\n🔢  Parsing BACKUP_SUMMARY marker…");
+  const tail = sshCapture(ip, user, keyPath, `tail -n 50 ${REMOTE_LOG}`);
+  const m = tail.match(BACKUP_SUMMARY_RE);
+  if (!m) {
+    bail(
+      `BACKUP_SUMMARY line not found in tail of ${REMOTE_LOG}.\n` +
+        "    The droplet/github-backup.sh marker line did not run or did not flush.\n" +
+        `    Last 50 lines of ${REMOTE_LOG}:\n${tail}`
+    );
+  }
+  const upstream = parseInt(m[1], 10);
+  const mirrored = parseInt(m[2], 10);
+  const failed = parseInt(m[3], 10);
+  console.log(
+    `   BACKUP_SUMMARY: upstream=${upstream} mirrored=${mirrored} failed=${failed}`
+  );
+
+  if (!(mirrored === upstream && failed === 0)) {
+    console.error(
+      `SMOKE: FAIL — upstream=${upstream} mirrored=${mirrored} failed=${failed};` +
+        ` see ${REMOTE_LOG} on droplet`
+    );
+    process.exit(1);
+  }
+
+  // Cross-check filesystem count.
+  const fsCountStr = sshCapture(
+    ip,
+    user,
+    keyPath,
+    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | wc -l`
+  );
+  const fsCount = parseInt(fsCountStr.trim(), 10);
+  if (fsCount !== mirrored) {
+    bail(
+      `Filesystem mirror count (${fsCount}) does not match BACKUP_SUMMARY mirrored (${mirrored})`
+    );
+  }
+  console.log(`   Filesystem cross-check OK — ${fsCount} *.git dirs`);
+}
+
+async function main(): Promise<void> {
+  console.log("══════════════════════════════════════════════════════════");
+  console.log(" github-backup smoke-test (Phase 1 / TEST-01)");
+  console.log("══════════════════════════════════════════════════════════");
+
+  // Step 1: optional --fresh teardown.
+  maybeFreshReset();
+
+  // Step 2: provision.
+  provision();
+
+  // Step 3: load droplet info.
+  const droplet = loadDropletInfo();
+  const cfg = loadConfig();
+  const { ip } = droplet;
+  const user = cfg.sshUser;
+  const keyPath = cfg.sshKeyPath;
+
+  // Step 4: bootstrap.
+  bootstrap();
+
+  // Step 5: trigger backup.
+  triggerBackup(ip, user, keyPath);
+
+  // Step 6: SSH-probe.
+  const remoteMirrorPath = pickRemoteMirror(ip, user, keyPath);
+
+  // Step 7: clone-probe.
+  cloneProbe(ip, user, keyPath, remoteMirrorPath);
+
+  // Step 8: 100%-pass enforcement via BACKUP_SUMMARY.
+  enforcePassBar(ip, user, keyPath);
+
+  // Step 9: success — droplet preserved (D-04 / D-08).
+  console.log(`\n✅  SMOKE: PASS — droplet preserved at ${ip}\n`);
+}
+
+main().catch((err) => {
+  console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
+  process.exit(1);
+});
