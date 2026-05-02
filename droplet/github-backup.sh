@@ -149,6 +149,8 @@ log "═════════════════════════
 log "Backup finished — success: ${SUCCESS}, failed: ${FAIL}"
 log "════════════════════════════════════════════════════════"
 
+log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
+
 if [[ "${FAIL}" -gt 0 ]]; then
   exit 1
 fi
