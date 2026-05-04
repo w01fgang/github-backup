@@ -74,6 +74,17 @@ const SHELL_SAFE_FIELDS: (keyof Config)[] = [
 ];
 const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
 
+/**
+ * NR-03: cronSchedule is interpolated into the generated backup.env as
+ *   CRON_SCHEDULE="${cfg.cronSchedule}"
+ * which the droplet sources with `set -a; source backup.env`. The value
+ * is not in SHELL_SAFE_FIELDS because cron expressions legitimately
+ * contain spaces, `*`, `,`, `/`, and `-`, which the shell-safe regex
+ * rejects. Validate it against a cron-shape allow-list instead so a
+ * stray `"`, `$`, `` ` ``, or newline still bails loudly.
+ */
+const CRON_SAFE_RE = /^[0-9*,/ \t-]+$/;
+
 export function loadConfig(): Config {
   const p = path.resolve(process.cwd(), "config.json");
   if (!fs.existsSync(p)) {
@@ -100,6 +111,20 @@ export function loadConfig(): Config {
           `Got: ${JSON.stringify(v)}`
       );
     }
+  }
+  // NR-03: cronSchedule is interpolated into backup.env quoted as
+  // CRON_SCHEDULE="…", which the droplet sources via `set -a; source`.
+  // A stray `"`, `$`, backtick, or newline would corrupt the env file
+  // or inject shell on the droplet. Cron expressions legitimately
+  // contain spaces, `*`, `,`, `/`, and `-`, so use a cron-shape
+  // allow-list rather than the strict shell-safe regex.
+  if (!CRON_SAFE_RE.test(cfg.cronSchedule)) {
+    bail(
+      `config.json field "cronSchedule" is not a safe cron expression; ` +
+        `refusing to interpolate into backup.env. Got: ${JSON.stringify(
+          cfg.cronSchedule
+        )}`
+    );
   }
   return cfg;
 }
