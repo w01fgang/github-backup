@@ -250,6 +250,15 @@ async function main(): Promise<void> {
   console.log(" github-backup smoke-test (Phase 1 / TEST-01)");
   console.log("══════════════════════════════════════════════════════════");
 
+  // BL-04: validate GITHUB_TOKEN before any billable action so a missing
+  // PAT never produces an unbootstrapped, useless, billed droplet.
+  if (!process.env["GITHUB_TOKEN"]) {
+    bail(
+      "GITHUB_TOKEN environment variable is not set.\n" +
+        "    Usage: GITHUB_TOKEN=<your_pat> npm run smoke-test"
+    );
+  }
+
   // Step 1: optional --fresh teardown.
   maybeFreshReset();
 
