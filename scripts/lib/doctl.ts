@@ -20,7 +20,11 @@ export function doctlJson<T>(cmd: string): T {
 /** Parse a doctl JSON response that may return either an array or a single object. */
 export function first<T>(cmd: string): T {
   const result = doctlJson<T | T[]>(cmd);
-  return Array.isArray(result) ? (result as T[])[0] : (result as T);
+  const item = Array.isArray(result) ? result[0] : result;
+  if (item == null) {
+    throw new Error(`doctl returned no record for: ${cmd}`);
+  }
+  return item as T;
 }
 
 /** Pull the public-network v4 IP off a droplet record. */
