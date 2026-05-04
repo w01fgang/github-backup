@@ -44,10 +44,10 @@ import { scpFile, sshRun, waitForSsh } from "./lib/ssh";
 function writeBackupEnv(cfg: Config, githubToken: string): string {
   if (!/^[A-Za-z0-9_]+$/.test(githubToken)) {
     bail(
-      "GITHUB_TOKEN contains characters outside [A-Za-z0-9_].\n" +
-        "    Refusing to write it to backup.env unquoted (would corrupt the env\n" +
-        "    file or inject shell on the droplet). Trim whitespace/newlines and\n" +
-        "    confirm the token shape, then re-run."
+      "GITHUB_TOKEN contains characters outside [A-Za-z0-9_] after trim.\n" +
+        `    Length=${githubToken.length}. Refusing to write it to backup.env\n` +
+        "    unquoted (would corrupt the env file or inject shell on the\n" +
+        "    droplet). Confirm the token shape, then re-run."
     );
   }
 
@@ -72,10 +72,16 @@ function writeBackupEnv(cfg: Config, githubToken: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const githubToken = process.env["GITHUB_TOKEN"] ?? "";
+  // NR-05: trim before checking. A trailing CR (Windows-line-ending file
+  // piped into GITHUB_TOKEN=$(cat token.txt)) or wrapping whitespace
+  // (`export GITHUB_TOKEN=" ghp_xxx "` from shell history) would
+  // otherwise pass the presence check and then fail the shape check
+  // inside writeBackupEnv with a confusing "characters outside" error
+  // on a token the operator "knows is right".
+  const githubToken = (process.env["GITHUB_TOKEN"] ?? "").trim();
   if (!githubToken) {
     bail(
-      "GITHUB_TOKEN environment variable is not set.\n" +
+      "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
         "    Usage: GITHUB_TOKEN=<your_pat> npm run bootstrap-droplet"
     );
   }

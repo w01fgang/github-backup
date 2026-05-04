@@ -101,9 +101,12 @@ function provision(): void {
 
 /** Step 4: bootstrap via npm run bootstrap-droplet. PROV-02 + BACKUP-03. */
 function bootstrap(): void {
-  if (!process.env["GITHUB_TOKEN"]) {
+  // NR-05: trim before checking — a trailing CR or wrapping whitespace
+  // would otherwise pass through to bootstrap-droplet.ts where it
+  // surfaces as a confusing "characters outside" shape error.
+  if (!(process.env["GITHUB_TOKEN"] ?? "").trim()) {
     bail(
-      "GITHUB_TOKEN environment variable is not set.\n" +
+      "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
         "    Usage: GITHUB_TOKEN=<your_pat> npm run smoke-test"
     );
   }
@@ -266,9 +269,11 @@ async function main(): Promise<void> {
 
   // BL-04: validate GITHUB_TOKEN before any billable action so a missing
   // PAT never produces an unbootstrapped, useless, billed droplet.
-  if (!process.env["GITHUB_TOKEN"]) {
+  // NR-05: trim before checking so trailing CR / wrapping whitespace
+  // does not slip through to the shape-check at writeBackupEnv.
+  if (!(process.env["GITHUB_TOKEN"] ?? "").trim()) {
     bail(
-      "GITHUB_TOKEN environment variable is not set.\n" +
+      "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
         "    Usage: GITHUB_TOKEN=<your_pat> npm run smoke-test"
     );
   }
