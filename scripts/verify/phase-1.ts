@@ -91,6 +91,18 @@ function sshExitsZero(
   if (r.error) {
     throw new Error(`ssh spawn failed: ${r.error.message}`);
   }
+  // NR-04: a signal-killed ssh (e.g. SIGTERM during CI cleanup, or OOM)
+  // returns r.status === null with r.signal set. Without this branch the
+  // function would return false and the caller would report "remote
+  // command failed" — exactly the false-narrative class WR-11 was meant
+  // to eliminate. Treat signal exits and null-status as transport-class
+  // failures so the operator sees the real cause.
+  if (r.signal) {
+    throw new Error(`ssh killed by signal ${r.signal}`);
+  }
+  if (r.status === null) {
+    throw new Error("ssh exited without a status (no signal reported)");
+  }
   // OpenSSH uses 255 for any transport-layer / connection / auth failure.
   // Anything else (including 0) is the remote process's own exit status.
   if (r.status === 255) {
