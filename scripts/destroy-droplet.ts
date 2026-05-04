@@ -70,6 +70,11 @@ function findFirewallId(firewallName: string): string | null {
 /**
  * Returns true if the droplet still exists. We check by id (from .droplet.json)
  * — never by name — to avoid the T-01-01-01 wrong-droplet hazard.
+ *
+ * Distinguish a genuine 404 / "not found" from any other doctl failure
+ * (auth-expired, network blip, doctl missing). On non-404 errors we
+ * rethrow so destroy-droplet aborts before deleting .droplet.json,
+ * preventing an orphaned billable droplet (WR-01).
  */
 function dropletExists(dropletId: number): boolean {
   try {
@@ -77,8 +82,16 @@ function dropletExists(dropletId: number): boolean {
       `doctl compute droplet get ${dropletId} --output json`
     );
     return true;
-  } catch {
-    return false;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // doctl prints "404" / "not found" in its stderr/message when the
+    // resource is gone. Anything else is a real failure we must surface.
+    if (/\b404\b|not found/i.test(msg)) {
+      return false;
+    }
+    throw new Error(
+      `doctl droplet get ${dropletId} failed (refusing to assume absence): ${msg}`
+    );
   }
 }
 
