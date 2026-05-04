@@ -26,7 +26,7 @@ import {
   type Config,
   type DropletInfo,
 } from "../lib/config";
-import { sshFlags, runCapture, runVisible, expandHome } from "../lib/ssh";
+import { sshFlags, runCapture, runVisible } from "../lib/ssh";
 import { doctlJson, first } from "../lib/doctl";
 
 /** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 task 1). */
@@ -299,11 +299,6 @@ function group4CloneProbe(cfg: Config, info: DropletInfo): void {
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const info = loadDropletInfo();
-
-  // Touch expandHome so the import is referenced even though sshFlags()
-  // already calls it transitively — keeps the module-level dependency
-  // explicit for future grep-ability.
-  void expandHome;
 
   console.log(
     `\n▶  verify:phase-1 — droplet ${info.name} (${info.id}) @ ${info.ip}\n`
