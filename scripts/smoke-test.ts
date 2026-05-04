@@ -160,6 +160,7 @@ function cloneProbe(
   const cloneUrl = `${user}@${ip}:${remoteMirrorPath}`;
 
   console.log(`\n📥  Clone-probe: cloning ${cloneUrl} into ${localTarget}…`);
+  let cleanupOnSuccess = true;
   try {
     runVisible(
       `GIT_SSH_COMMAND='${gitSshCmd}' git clone "${cloneUrl}" "${localTarget}"`
@@ -183,15 +184,24 @@ function cloneProbe(
     console.log(
       `   Clone-probe OK — HEAD=${head.slice(0, 12)} refs=${refsCount}`
     );
-
-    // Cleanup only on success — failures stay inspectable (T-01-07).
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch (err: unknown) {
+    // WR-08: a spurious rmSync error must not masquerade as a probe
+    // failure. Mark cleanup off and preserve tmpdir only when the probe
+    // itself raised. Mirrors the verify/phase-1.ts pattern.
+    cleanupOnSuccess = false;
     const msg = err instanceof Error ? err.message : String(err);
     console.error(
       `   Clone-probe failed; tmpdir preserved at ${tmpDir} for inspection.`
     );
     bail(`clone-probe: ${msg}`);
+  } finally {
+    if (cleanupOnSuccess) {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
   }
 }
 
