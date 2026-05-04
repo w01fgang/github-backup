@@ -62,7 +62,7 @@ set +a
 # Export so gh and git credential helper can use it
 export GITHUB_TOKEN
 
-# ── Logging helper ─────────────────────────────────────────────────────────
+# --- Logging helper ---------------------------------------------------------
 log() {
   local ts
   ts=$(date '+%Y-%m-%d %H:%M:%S')
