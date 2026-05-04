@@ -187,11 +187,13 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
     .filter((m): m is RegExpMatchArray => m !== null);
 
   assert(
-    matches.length === 1,
-    `tail of ${REMOTE_LOG} contains exactly one BACKUP_SUMMARY line (got ${matches.length})`
+    matches.length >= 1,
+    `tail of ${REMOTE_LOG} contains at least one BACKUP_SUMMARY line (got ${matches.length})`
   );
 
-  const m = matches[0];
+  // Anchor on the most recent line: log is append-only, so a second run
+  // will see prior summaries in the tail. Pick the latest (BL-03).
+  const m = matches[matches.length - 1];
   const upstream = parseInt(m[1], 10);
   const mirrored = parseInt(m[2], 10);
   const failed = parseInt(m[3], 10);
