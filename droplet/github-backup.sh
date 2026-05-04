@@ -110,9 +110,18 @@ REPO_LIST=$(
   gh api --paginate "${API_ENDPOINT}" --jq '.[].full_name' 2>>"${LOG_FILE}"
 ) || { log "ERROR: gh api failed (exit $?). Aborting."; exit 2; }
 mapfile -t REPOS <<< "${REPO_LIST}"
-# Drop a trailing empty element if the heredoc added a blank line.
-if [[ "${#REPOS[@]}" -gt 0 && -z "${REPOS[-1]:-}" ]]; then
-  unset 'REPOS[-1]'
+# NR-02: drop ALL empty entries, not just a trailing one. A blank line
+# anywhere in the gh api output (mid-stream or post-trim) would otherwise
+# loop with REPO_FULL="" and produce a phantom failure on a "_.git"
+# clone target — tripping the 100%-pass bar with no actionable cause.
+# Note: under `set -u` we must guard expansions of possibly-empty arrays.
+TMP=()
+if [[ "${#REPOS[@]}" -gt 0 ]]; then
+  for r in "${REPOS[@]}"; do [[ -n "$r" ]] && TMP+=("$r"); done
+fi
+REPOS=()
+if [[ "${#TMP[@]}" -gt 0 ]]; then
+  REPOS=("${TMP[@]}")
 fi
 
 TOTAL="${#REPOS[@]}"
