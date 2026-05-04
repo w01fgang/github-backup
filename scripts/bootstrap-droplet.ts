@@ -106,8 +106,9 @@ async function main(): Promise<void> {
     }
 
     const scriptFiles = fs
-      .readdirSync(dropletDir)
-      .map((f) => path.join(dropletDir, f));
+      .readdirSync(dropletDir, { withFileTypes: true })
+      .filter((d) => d.isFile() && d.name.endsWith(".sh"))
+      .map((d) => path.join(dropletDir, d.name));
 
     for (const file of scriptFiles) {
       const basename = path.basename(file);
