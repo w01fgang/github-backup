@@ -19,6 +19,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { spawnSync } from "child_process";
 import {
   loadConfig,
   loadDropletInfo,
@@ -74,19 +75,29 @@ function sshCapture(
   );
 }
 
-/** Returns true if `ssh ... <cmd>` exits 0; false on any non-zero. */
+/**
+ * Returns true if `ssh ... <cmd>` exits 0; false on a remote non-zero
+ * exit. Re-throws on ssh transport failure (exit 255) so a network blip
+ * or auth loss does not get reported as 'remote command failed'.
+ */
 function sshExitsZero(
   ip: string,
   user: string,
   keyPath: string,
   remoteCmd: string
 ): boolean {
-  try {
-    runCapture(`ssh ${sshFlags(keyPath)} ${user}@${ip} '${remoteCmd}'`);
-    return true;
-  } catch {
-    return false;
+  const cmd = `ssh ${sshFlags(keyPath)} ${user}@${ip} '${remoteCmd}'`;
+  const r = spawnSync(cmd, { shell: true, stdio: "pipe", encoding: "utf8" });
+  if (r.error) {
+    throw new Error(`ssh spawn failed: ${r.error.message}`);
   }
+  // OpenSSH uses 255 for any transport-layer / connection / auth failure.
+  // Anything else (including 0) is the remote process's own exit status.
+  if (r.status === 255) {
+    const stderr = (r.stderr ?? "").trim();
+    throw new Error(`ssh transport failure (exit 255): ${stderr || "no stderr"}`);
+  }
+  return r.status === 0;
 }
 
 function group1Provision(cfg: Config, info: DropletInfo): void {
