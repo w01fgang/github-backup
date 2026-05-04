@@ -58,6 +58,22 @@ const REQUIRED_FIELDS: (keyof Config)[] = [
   "allowedSSHCidr",
 ];
 
+/**
+ * WR-05: fields that get interpolated into single-quoted ssh/scp commands
+ * built by lib/ssh.ts. A stray `'` or unbalanced `"` in any of these
+ * produces an opaque remote-shell parse error. Restrict to a strict
+ * shell-safe allow-list rather than escaping at every call site.
+ */
+const SHELL_SAFE_FIELDS: (keyof Config)[] = [
+  "dropletName",
+  "firewallName",
+  "sshUser",
+  "sshKeyPath",
+  "githubUserOrOrg",
+  "backupDir",
+];
+const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
+
 export function loadConfig(): Config {
   const p = path.resolve(process.cwd(), "config.json");
   if (!fs.existsSync(p)) {
@@ -66,9 +82,24 @@ export function loadConfig(): Config {
         "    Copy config.example.json → config.json and fill in your values."
     );
   }
-  const cfg = JSON.parse(fs.readFileSync(p, "utf8")) as Config;
+  let cfg: Config;
+  try {
+    cfg = JSON.parse(fs.readFileSync(p, "utf8")) as Config;
+  } catch (e) {
+    bail(`config.json is not valid JSON: ${(e as Error).message}`);
+  }
   for (const k of REQUIRED_FIELDS) {
     if (!cfg[k]) bail(`config.json is missing required field: "${k}"`);
+  }
+  for (const k of SHELL_SAFE_FIELDS) {
+    const v = cfg[k];
+    if (typeof v === "string" && !SHELL_SAFE_RE.test(v)) {
+      bail(
+        `config.json field "${k}" contains characters outside ` +
+          `[A-Za-z0-9._/~@:-]; refusing to interpolate into ssh commands. ` +
+          `Got: ${JSON.stringify(v)}`
+      );
+    }
   }
   return cfg;
 }
