@@ -89,10 +89,14 @@ fi
 # fetching every page and concatenating the JSON arrays before jq processes them.
 log "Fetching repository list…"
 
-mapfile -t REPOS < <(
-  gh api --paginate "${API_ENDPOINT}" \
-    --jq '.[].full_name' 2>>"${LOG_FILE}"
-)
+REPO_LIST=$(
+  gh api --paginate "${API_ENDPOINT}" --jq '.[].full_name' 2>>"${LOG_FILE}"
+) || { log "ERROR: gh api failed (exit $?). Aborting."; exit 2; }
+mapfile -t REPOS <<< "${REPO_LIST}"
+# Drop a trailing empty element if the heredoc added a blank line.
+if [[ "${#REPOS[@]}" -gt 0 && -z "${REPOS[-1]:-}" ]]; then
+  unset 'REPOS[-1]'
+fi
 
 TOTAL="${#REPOS[@]}"
 log "Found ${TOTAL} $([ "${TOTAL}" -eq 1 ] && echo 'repository' || echo 'repositories')."
