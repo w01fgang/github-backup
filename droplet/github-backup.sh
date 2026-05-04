@@ -28,6 +28,17 @@ export PATH="/usr/local/bin:/usr/bin:/bin"
 # Tell git never to block waiting for user input — fail instead
 export GIT_TERMINAL_PROMPT=0
 
+# ── Single-instance lock (WR-02 / WR-09) ──
+# Cron + smoke + verify can race on the same *.git mirrors. flock on a
+# fixed path serialises every invocation; -n means "exit cleanly if
+# another run holds the lock" so cron does not pile up.
+LOCK_FILE="${LOCK_FILE:-/var/lock/github-backup.lock}"
+exec 9>"${LOCK_FILE}"
+if ! flock -n 9; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] another github-backup.sh instance holds ${LOCK_FILE}; exiting." >&2
+  exit 0
+fi
+
 BACKUP_DIR="${BACKUP_DIR:-/opt/github-backups}"
 LOG_FILE="${LOG_FILE:-/var/log/github-backup.log}"
 ENV_FILE="${BACKUP_DIR}/backup.env"
