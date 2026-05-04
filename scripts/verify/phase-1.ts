@@ -186,8 +186,12 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
   console.log(
     `   Triggering ${REMOTE_DIR}/github-backup.sh on droplet (synchronous)…`
   );
+  // NR-01: REQUIRE_LOCK=1 makes the remote script block on the cron
+  // lock instead of silent-exiting. Without it, an in-flight cron
+  // instance would cause this trigger to no-op and the BACKUP_SUMMARY
+  // assertion below would parse a stale summary from the prior run.
   runVisible(
-    `ssh ${sshFlags(key)} ${user}@${ip} '${REMOTE_DIR}/github-backup.sh'`
+    `ssh ${sshFlags(key)} ${user}@${ip} 'REQUIRE_LOCK=1 ${REMOTE_DIR}/github-backup.sh'`
   );
 
   // Tail log + match BACKUP_SUMMARY exactly once.

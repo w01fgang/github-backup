@@ -34,7 +34,13 @@ export GIT_TERMINAL_PROMPT=0
 # another run holds the lock" so cron does not pile up.
 LOCK_FILE="${LOCK_FILE:-/var/lock/github-backup.lock}"
 exec 9>"${LOCK_FILE}"
-if ! flock -n 9; then
+# NR-01: cron uses non-blocking + silent-exit (avoid retry pile-up).
+# verify/smoke set REQUIRE_LOCK=1 to block until the lock is free, so
+# their "trigger then assert BACKUP_SUMMARY" model never sees a stale
+# previous-run summary as if it were the current run.
+if [[ "${REQUIRE_LOCK:-0}" = "1" ]]; then
+  flock 9
+elif ! flock -n 9; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] another github-backup.sh instance holds ${LOCK_FILE}; exiting." >&2
   exit 0
 fi

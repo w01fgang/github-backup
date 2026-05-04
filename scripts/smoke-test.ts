@@ -116,7 +116,11 @@ function bootstrap(): void {
 function triggerBackup(ip: string, user: string, keyPath: string): void {
   console.log(`\n🔁  Triggering ${REMOTE_BACKUP} on droplet (synchronous)…`);
   try {
-    sshRun(ip, user, keyPath, REMOTE_BACKUP);
+    // NR-01: REQUIRE_LOCK=1 makes the remote script block on the cron
+    // lock instead of silent-exiting. Without this, a mid-run cron
+    // instance would cause this trigger to no-op and verify/smoke would
+    // assert against a stale BACKUP_SUMMARY from the previous run.
+    sshRun(ip, user, keyPath, `REQUIRE_LOCK=1 ${REMOTE_BACKUP}`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     bail(`Remote github-backup.sh failed: ${msg}`);
