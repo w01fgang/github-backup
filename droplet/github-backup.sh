@@ -142,7 +142,7 @@ for REPO_FULL in "${REPOS[@]}"; do
       (( SUCCESS++ ))
     else
       log "           ✗ Update FAILED (see above for details)"
-      (( FAIL++ )) || true   # `|| true` keeps set -e from firing on arithmetic
+      (( FAIL++ ))
     fi
   else
     # ── Clone new mirror ───────────────────────────────────────────────
@@ -154,7 +154,7 @@ for REPO_FULL in "${REPOS[@]}"; do
       (( SUCCESS++ ))
     else
       log "           ✗ Clone FAILED (see above for details)"
-      (( FAIL++ )) || true
+      (( FAIL++ ))
     fi
   fi
 done
