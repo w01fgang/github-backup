@@ -125,8 +125,18 @@ function findOrCreateFirewall(cfg: Config): string {
   let all: FirewallRecord[] = [];
   try {
     all = doctlJson<FirewallRecord[]>("doctl compute firewall list --output json");
-  } catch {
-    // An empty firewall list may error on some doctl versions — safe to ignore.
+  } catch (err: unknown) {
+    // NR-09: tolerate the doctl quirk where an empty firewall list errors
+    // on some versions, but surface anything else (auth/network/missing
+    // doctl). Misclassifying a real failure here only causes a benign
+    // duplicate-create attempt rather than an orphan, but we keep the
+    // shape consistent with destroy-droplet for clarity.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/empty list|no firewalls/i.test(msg)) {
+      throw new Error(
+        `doctl firewall list failed (refusing to assume absence): ${msg}`
+      );
+    }
   }
 
   const existing = all.find((fw) => fw.name === cfg.firewallName);

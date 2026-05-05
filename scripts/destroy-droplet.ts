@@ -52,17 +52,29 @@ async function confirm(question: string): Promise<boolean> {
 }
 
 /**
- * Find a firewall by name. Returns id or null. Tolerates the doctl quirk
- * where an empty firewall list errors on some versions (matches create-droplet).
+ * Find a firewall by name. Returns id or null.
+ *
+ * NR-09: distinguish a true "no firewalls" empty-list error (which some
+ * doctl versions return as a non-zero exit instead of `[]`) from any
+ * other doctl failure (auth-expired, network blip, doctl missing). On
+ * non-empty-list errors we rethrow so destroy-droplet aborts before
+ * deleting .droplet.json — preventing an orphaned billable firewall.
+ * Same hazard class as WR-01 in dropletExists.
  */
 function findFirewallId(firewallName: string): string | null {
-  let all: FirewallRecord[] = [];
+  let all: FirewallRecord[];
   try {
     all = doctlJson<FirewallRecord[]>(
       "doctl compute firewall list --output json"
     );
-  } catch {
-    return null;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/empty list|no firewalls/i.test(msg)) {
+      return null;
+    }
+    throw new Error(
+      `doctl firewall list failed (refusing to assume absence): ${msg}`
+    );
   }
   return all.find((fw) => fw.name === firewallName)?.id ?? null;
 }
