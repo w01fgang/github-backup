@@ -82,8 +82,15 @@ const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
  * contain spaces, `*`, `,`, `/`, and `-`, which the shell-safe regex
  * rejects. Validate it against a cron-shape allow-list instead so a
  * stray `"`, `$`, `` ` ``, or newline still bails loudly.
+ *
+ * NR-07: extend the allow-list to cover valid cron grammar that earlier
+ * iterations rejected — nicknames (@daily/@hourly/@reboot), named months
+ * (JAN-DEC) and days (MON-SUN), last-day-of-month (L), nearest-weekday
+ * (W), nth-weekday (#), and the no-specific-value extension (?). The
+ * injection-relevant chars (`"`, `$`, `` ` ``, `\`, `;`, `&`, `|`, `<`,
+ * `>`, `(`, `)`, `{`, `}`, newline) remain blocked.
  */
-const CRON_SAFE_RE = /^[0-9*,/ \t-]+$/;
+const CRON_SAFE_RE = /^[A-Za-z0-9@*,/#? \t-]+$/;
 
 export function loadConfig(): Config {
   const p = path.resolve(process.cwd(), "config.json");
