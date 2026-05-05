@@ -31,7 +31,7 @@ import { doctlJson, first } from "../lib/doctl";
 
 /** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 task 1). */
 const BACKUP_SUMMARY_RE =
-  /^\[.*\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/;
+  /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/;
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -198,6 +198,17 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
   console.log(
     `   Triggering ${REMOTE_DIR}/github-backup.sh on droplet (synchronous)…`
   );
+  // NR-08: capture droplet-local "now" *before* triggering, in the same
+  // YYYY-MM-DD HH:MM:SS shape github-backup.sh emits in its log prefix.
+  // After the trigger returns, we filter BACKUP_SUMMARY matches by
+  // timestamp >= tStart so a cron run firing inside the trigger →
+  // tail-read window cannot masquerade as our triggered run.
+  const tStart = sshCapture(
+    ip,
+    user,
+    key,
+    `date "+%Y-%m-%d %H:%M:%S"`
+  ).trim();
   // NR-01: REQUIRE_LOCK=1 makes the remote script block on the cron
   // lock instead of silent-exiting. Without it, an in-flight cron
   // instance would cause this trigger to no-op and the BACKUP_SUMMARY
@@ -208,22 +219,29 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
 
   // Tail log + match BACKUP_SUMMARY exactly once.
   const tail = sshCapture(ip, user, key, `tail -n 50 ${REMOTE_LOG}`);
-  const matches = tail
+  const allMatches = tail
     .split("\n")
     .map((l) => l.match(BACKUP_SUMMARY_RE))
     .filter((m): m is RegExpMatchArray => m !== null);
 
+  // NR-08: lexicographic compare on fixed-width same-tz YYYY-MM-DD
+  // HH:MM:SS is monotonic, so `>= tStart` correctly excludes summaries
+  // emitted before we triggered.
+  const matches = allMatches.filter((m) => m[1] >= tStart);
+
   assert(
     matches.length >= 1,
-    `tail of ${REMOTE_LOG} contains at least one BACKUP_SUMMARY line (got ${matches.length})`
+    `tail of ${REMOTE_LOG} contains a BACKUP_SUMMARY line at or after tStart=${tStart} ` +
+      `(got ${matches.length}; ${allMatches.length} total summaries in tail)`
   );
 
-  // Anchor on the most recent line: log is append-only, so a second run
-  // will see prior summaries in the tail. Pick the latest (BL-03).
-  const m = matches[matches.length - 1];
-  const upstream = parseInt(m[1], 10);
-  const mirrored = parseInt(m[2], 10);
-  const failed = parseInt(m[3], 10);
+  // NR-08: take the earliest post-tStart match — that is our triggered
+  // run. A later one would be a cron run that fired after we released
+  // the lock, which is not what we are validating.
+  const m = matches[0];
+  const upstream = parseInt(m[2], 10);
+  const mirrored = parseInt(m[3], 10);
+  const failed = parseInt(m[4], 10);
 
   console.log(
     `   BACKUP_SUMMARY parsed: upstream=${upstream} mirrored=${mirrored} failed=${failed}`

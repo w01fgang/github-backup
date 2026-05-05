@@ -33,7 +33,7 @@ import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
 
 /** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 step 0). */
 const BACKUP_SUMMARY_RE =
-  /^\[.*\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/m;
+  /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/m;
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -115,9 +115,22 @@ function bootstrap(): void {
   if (code !== 0) bail(`bootstrap-droplet failed (exit ${code})`);
 }
 
-/** Step 5: trigger backup remotely. BACKUP-01 / BACKUP-02. Synchronous. */
-function triggerBackup(ip: string, user: string, keyPath: string): void {
+/** Step 5: trigger backup remotely. BACKUP-01 / BACKUP-02. Synchronous.
+ *
+ * NR-08: returns the droplet-local timestamp captured *before* the trigger
+ * so enforcePassBar can filter out a cron-fired BACKUP_SUMMARY that sneaks
+ * in between trigger-return and tail-read. Same YYYY-MM-DD HH:MM:SS shape
+ * github-backup.sh writes in its log prefix, so a lexicographic >= compare
+ * is monotonic and correct.
+ */
+function triggerBackup(ip: string, user: string, keyPath: string): string {
   console.log(`\n🔁  Triggering ${REMOTE_BACKUP} on droplet (synchronous)…`);
+  const tStart = sshCapture(
+    ip,
+    user,
+    keyPath,
+    `date "+%Y-%m-%d %H:%M:%S"`
+  ).trim();
   try {
     // NR-01: REQUIRE_LOCK=1 makes the remote script block on the cron
     // lock instead of silent-exiting. Without this, a mid-run cron
@@ -128,6 +141,7 @@ function triggerBackup(ip: string, user: string, keyPath: string): void {
     const msg = err instanceof Error ? err.message : String(err);
     bail(`Remote github-backup.sh failed: ${msg}`);
   }
+  return tStart;
 }
 
 /**
@@ -219,21 +233,40 @@ function cloneProbe(
  *
  * Bash is the single source of truth for the upstream count — we do NOT
  * re-derive it via gh api here.
+ *
+ * NR-08: tStart is the droplet-local timestamp captured before the trigger
+ * fired. Filter matches by timestamp >= tStart so a cron run that fires
+ * inside the trigger → tail-read window cannot masquerade as ours.
  */
-function enforcePassBar(ip: string, user: string, keyPath: string): void {
+function enforcePassBar(
+  ip: string,
+  user: string,
+  keyPath: string,
+  tStart: string
+): void {
   console.log("\n🔢  Parsing BACKUP_SUMMARY marker…");
   const tail = sshCapture(ip, user, keyPath, `tail -n 50 ${REMOTE_LOG}`);
-  const m = tail.match(BACKUP_SUMMARY_RE);
+  const allMatches = tail
+    .split("\n")
+    .map((l) => l.match(BACKUP_SUMMARY_RE))
+    .filter((mm): mm is RegExpMatchArray => mm !== null);
+  // Lexicographic compare on fixed-width same-tz YYYY-MM-DD HH:MM:SS is
+  // monotonic, so `>= tStart` correctly excludes pre-trigger summaries.
+  const matches = allMatches.filter((mm) => mm[1] >= tStart);
+  // Earliest post-tStart match is our triggered run; a later one would be
+  // a cron run that fired after we released the lock.
+  const m = matches[0];
   if (!m) {
     bail(
-      `BACKUP_SUMMARY line not found in tail of ${REMOTE_LOG}.\n` +
+      `BACKUP_SUMMARY line at or after tStart=${tStart} not found in tail of ${REMOTE_LOG}.\n` +
         "    The droplet/github-backup.sh marker line did not run or did not flush.\n" +
+        `    (${allMatches.length} total summaries in tail; none post-tStart.)\n` +
         `    Last 50 lines of ${REMOTE_LOG}:\n${tail}`
     );
   }
-  const upstream = parseInt(m[1], 10);
-  const mirrored = parseInt(m[2], 10);
-  const failed = parseInt(m[3], 10);
+  const upstream = parseInt(m[2], 10);
+  const mirrored = parseInt(m[3], 10);
+  const failed = parseInt(m[4], 10);
   console.log(
     `   BACKUP_SUMMARY: upstream=${upstream} mirrored=${mirrored} failed=${failed}`
   );
@@ -295,7 +328,7 @@ async function main(): Promise<void> {
   bootstrap();
 
   // Step 5: trigger backup.
-  triggerBackup(ip, user, keyPath);
+  const tStart = triggerBackup(ip, user, keyPath);
 
   // Step 6: SSH-probe.
   const remoteMirrorPath = pickRemoteMirror(ip, user, keyPath);
@@ -304,7 +337,7 @@ async function main(): Promise<void> {
   cloneProbe(ip, user, keyPath, remoteMirrorPath);
 
   // Step 8: 100%-pass enforcement via BACKUP_SUMMARY.
-  enforcePassBar(ip, user, keyPath);
+  enforcePassBar(ip, user, keyPath, tStart);
 
   // Step 9: success — droplet preserved (D-04 / D-08).
   console.log(`\n✅  SMOKE: PASS — droplet preserved at ${ip}\n`);
