@@ -38,8 +38,17 @@ exec 9>"${LOCK_FILE}"
 # verify/smoke set REQUIRE_LOCK=1 to block until the lock is free, so
 # their "trigger then assert BACKUP_SUMMARY" model never sees a stale
 # previous-run summary as if it were the current run.
+# NR-06: bound the wait with `flock -w N`. A wedged prior run (mid-clone
+# of a 5 GB repo, hung TLS handshake, kernel NFS lock weirdness) would
+# otherwise hang verify/smoke for their entire wall-clock budget. exit 75
+# (EX_TEMPFAIL) so the caller can surface "previous run wedged" distinctly
+# from a real backup failure.
+LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-600}"
 if [[ "${REQUIRE_LOCK:-0}" = "1" ]]; then
-  flock 9
+  if ! flock -w "${LOCK_WAIT_SECONDS}" 9; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] timed out (${LOCK_WAIT_SECONDS}s) waiting for ${LOCK_FILE}; previous run may be wedged" >&2
+    exit 75
+  fi
 elif ! flock -n 9; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] another github-backup.sh instance holds ${LOCK_FILE}; exiting." >&2
   exit 0
