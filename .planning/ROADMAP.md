@@ -1,14 +1,15 @@
 # Roadmap — github-backup v1
 
-5 phases | 14 requirements | All v1 requirements covered
+6 phases | 15 requirements | All v1 requirements covered
 
 | # | Phase | Goal | Requirements | UI hint |
 |---|-------|------|--------------|---------|
 | 1 | Verify pipeline | Existing code runs end-to-end on real droplet, smoke-tested | PROV-01, PROV-02, BACKUP-01, BACKUP-02, BACKUP-03, ACCESS-01, TEST-01, TEST-02 | no |
 | 2 | Monitoring | Operator can answer "did backup run, did it work, am I out of disk" | MON-01, MON-02, MON-03 | no |
 | 3 | Restore | Documented + tested clone-back path; refs preserved | RESTORE-01, RESTORE-02 | no |
-| 4 | Teardown / redeploy | Idempotent re-bootstrap + clean destroy script | TEARDOWN-01, TEARDOWN-02 | no |
+| 4 | Bootstrap idempotency | `bootstrap-droplet` re-run is safe (no duplicate cron, no clobbered env) | TEARDOWN-01 | no |
 | 5 | Multi-source | Single droplet backs up N users/orgs from one config | MULTI-01 | no |
+| 6 | Webhook listener | GitHub push events trigger per-repo sync within seconds | WEBHOOK-01, WEBHOOK-02 | no |
 
 ---
 
@@ -66,18 +67,20 @@
 
 ---
 
-### Phase 4: Teardown / redeploy
+### Phase 4: Bootstrap idempotency
 
-**Goal**: Bootstrap is safe to re-run on a live droplet; teardown cleanly removes everything created.
+**Goal**: `bootstrap-droplet` is safe to re-run on a live droplet — no duplicate cron entries, no clobbered `backup.env`, no orphaned listener processes.
 
-**Requirements**: TEARDOWN-01, TEARDOWN-02
+**Requirements**: TEARDOWN-01
 
 **Success criteria**:
-1. Re-running `bootstrap-droplet` on a live droplet does not duplicate cron entries or clobber `backup.env`
-2. `npm run destroy-droplet` removes droplet + firewall, refuses if `.droplet.json` missing
-3. After destroy, `doctl compute droplet list` and `doctl compute firewall list` show no leftovers
+1. Re-running `bootstrap-droplet` on a live droplet does not duplicate cron entries
+2. Re-running preserves existing `backup.env` (token, webhook secret) by default; `--rotate-env` flag forces fresh upload
+3. Re-running restarts the webhook listener cleanly (after Phase 6)
 
-**Depends on**: Phase 1
+**Depends on**: Phase 1 (and Phase 6 once webhook listener exists)
+
+**Note**: Automated droplet teardown (`destroy-droplet`) is OUT OF SCOPE per PROJECT.md (2026-05-11). Manual DO-dashboard removal is the documented teardown path.
 
 ---
 
@@ -97,6 +100,23 @@
 
 ---
 
+### Phase 6: Webhook listener
+
+**Goal**: GitHub push events trigger per-repo mirror update within seconds; cron sweep (Phase 1) becomes safety net rather than primary trigger.
+
+**Requirements**: WEBHOOK-01, WEBHOOK-02
+
+**Success criteria**:
+1. Public HTTPS endpoint on droplet (e.g. `https://<droplet>/webhook/github`) accepts GitHub `push` event payloads
+2. Requests with valid `X-Hub-Signature-256` HMAC trigger sync of the named repo; invalid signatures return 401 and are logged
+3. End-to-end test: register webhook on a real test repo, push a commit, observe mirror updated within 30 seconds
+4. Listener survives reboot (systemd unit) and bootstrap re-run (Phase 4)
+5. Multi-source aware (Phase 5): incoming event resolves to correct `<source>/<owner>_<repo>.git` mirror path
+
+**Depends on**: Phases 1, 4, 5
+
+---
+
 ## Coverage
 
-All 14 v1 requirements mapped. No requirement appears in more than one phase.
+All 15 v1 requirements mapped. No requirement appears in more than one phase.

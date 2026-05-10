@@ -114,5 +114,21 @@ This phase clarifies HOW to verify and assert against the existing code. No new 
 
 ---
 
+## Post-phase amendment — 2026-05-11
+
+**Reverses:** D-08 (`scripts/destroy-droplet.ts` pulled forward from Phase 4) and the `--fresh` flag in `scripts/smoke-test.ts`.
+
+**Reason:** Operator decided automated droplet teardown is not worth the surface area at single-operator scale. Manual DO-dashboard removal is the documented teardown path. See PROJECT.md → Out of Scope ("Automated droplet teardown") and Key Decisions ("No automated droplet teardown").
+
+**Changes applied:**
+- `scripts/destroy-droplet.ts` deleted from repo
+- `destroy-droplet` removed from `package.json` scripts
+- `--fresh` handling removed from `scripts/smoke-test.ts` (header docstring + `maybeFreshReset` + `hasFlag` helper)
+- Re-provisioning is now: delete droplet from DO dashboard, remove `.droplet.json` locally, re-run `npm run smoke-test`
+
+The rest of Phase 1's decisions (smoke runner, verify:phase-1, BACKUP_SUMMARY contract, lock semantics) are unaffected.
+
+---
+
 *Phase: 1-verify-pipeline*
-*Context gathered: 2026-04-30*
+*Context gathered: 2026-04-30 (amended 2026-05-11)*

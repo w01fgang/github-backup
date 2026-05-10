@@ -460,5 +460,21 @@ SaaS, source-level access control, multi-droplet sharding (v2).
 
 ---
 
+## Post-phase amendment — 2026-05-11
+
+**Trigger:** PROJECT.md added webhook + cron hybrid as the sync model. New Phase 6 (Webhook listener) depends on Phase 5's source-resolution work.
+
+**Implications for Phase 5 (no rewrite — additive amendment for the planner and for Phase 6):**
+
+- **Source resolution becomes a Phase 6 dependency.** A webhook payload names `<owner>/<repo>` (`repository.full_name`). The mirror lives at `<source>/<owner>_<repo>.git` per D-07. Phase 6's listener must map `<owner>` → which configured `<source>` it belongs to. Simplest contract (recommended for Phase 6): `<source>` IS `<repository.owner.login>` from the payload, and the listener rejects events where that login is not in `cfg.sources`. Works for both user-source and org-source cases.
+- **`detect-account-type.sh` (D-05) becomes more valuable.** Phase 6 will likely call it from the webhook listener at registration time (to know which API endpoint to register webhooks against) and at handle time (to validate payload source type). Keep the helper general-purpose; do not bake cron-only assumptions into it.
+- **`last-run.json` schema (D-11) covers cron only.** Phase 6 ships a sibling `last-webhook-event.json` (NOT a merge into `last-run.json`); the per-source structure designed in D-11 is a good template for Phase 6's per-source webhook event aggregation.
+- **Webhook secret per source vs single secret.** Phase 5's per-source isolation suggests per-source webhook secrets (one secret per `<source>`, stored as `WEBHOOK_SECRET_<SOURCE>` in `backup.env` — D-03's shell-safe-name validation already covers source name shape). Phase 6 makes the call; Phase 5 provides the stable shell-safe source-name constraint.
+- **Source list mutation between cron sweeps.** A new source added to `cfg.sources` will not be webhook-active until the operator runs `npm run register-webhooks` (or whatever Phase 6 names it) for the new source. Document in the multi-source README addendum (D-18) once Phase 6's command name is known.
+
+**No code changes needed in Phase 5 itself.** D-05's `detect-account-type.sh` extraction continues to be the right move. D-04's `GITHUB_SOURCES` env var in `backup.env` remains the source-of-truth for the cron path; Phase 6's listener reads the same var so cron and webhook agree on "what sources do we back up".
+
+---
+
 *Phase: 05-multi-source*
-*Context gathered: 2026-05-10*
+*Context gathered: 2026-05-10 (amended 2026-05-11)*
