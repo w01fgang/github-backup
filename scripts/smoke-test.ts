@@ -2,24 +2,26 @@
 /**
  * scripts/smoke-test.ts
  *
- * End-to-end smoke runner for Phase 1 (TEST-01 / D-03 / D-04 / D-05 / D-08).
+ * End-to-end smoke runner for Phase 1 (TEST-01 / D-03 / D-04 / D-05).
  *
  * Orchestrates the live pipeline against real DigitalOcean infrastructure
  * and the operator's real GitHub user (D-01) at the 100%-pass bar (D-02):
  *
- *   1. (optional --fresh) destroy any existing droplet
- *   2. provision via npm run create-droplet                (PROV-01)
- *   3. bootstrap via npm run bootstrap-droplet             (PROV-02 + BACKUP-03)
- *   4. trigger /opt/github-backups/github-backup.sh remotely (BACKUP-01/02)
- *   5. SSH-probe — confirm at least one *.git mirror exists  (BACKUP-02)
- *   6. clone-probe — git clone one mirror over SSH locally  (ACCESS-01)
- *   7. parse BACKUP_SUMMARY marker — enforce 100% pass     (D-02)
+ *   1. provision via npm run create-droplet                (PROV-01)
+ *   2. bootstrap via npm run bootstrap-droplet             (PROV-02 + BACKUP-03)
+ *   3. trigger /opt/github-backups/github-backup.sh remotely (BACKUP-01/02)
+ *   4. SSH-probe — confirm at least one *.git mirror exists  (BACKUP-02)
+ *   5. clone-probe — git clone one mirror over SSH locally  (ACCESS-01)
+ *   6. parse BACKUP_SUMMARY marker — enforce 100% pass     (D-02)
  *
- * Default behaviour leaves the droplet alive (D-04, D-08). Re-runnable.
+ * Default behaviour leaves the droplet alive. Re-runnable.
+ *
+ * Re-provisioning from scratch: delete the droplet manually from the DO
+ * dashboard (and remove `.droplet.json` locally), then re-run. Automated
+ * teardown is intentionally not provided — see PROJECT.md (2026-05-11).
  *
  * Usage:
  *   npm run smoke-test
- *   npm run smoke-test -- --fresh
  *
  * Required env: GITHUB_TOKEN (passed through to bootstrap).
  */
@@ -38,10 +40,6 @@ const BACKUP_SUMMARY_RE =
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
 const REMOTE_BACKUP = `${REMOTE_DIR}/github-backup.sh`;
-
-function hasFlag(name: string): boolean {
-  return process.argv.slice(2).includes(name);
-}
 
 /**
  * Run another npm script in this project. Streams output. Returns exit code.
@@ -77,22 +75,7 @@ function sshCapture(
   return runCapture(`ssh ${sshFlags(keyPath)} ${user}@${ip} '${remoteCmd}'`);
 }
 
-/**
- * Step 1: --fresh teardown. Best-effort: a missing .droplet.json (no prior
- * droplet) is expected and not an error. Spawns destroy-droplet --yes.
- */
-function maybeFreshReset(): void {
-  if (!hasFlag("--fresh")) return;
-  console.log("\n🧹  --fresh: destroying any existing droplet first…");
-  const code = runNpmScript("destroy-droplet", ["--yes"]);
-  if (code !== 0) {
-    console.log(
-      `   destroy-droplet exited ${code} — ignoring (likely no prior droplet).`
-    );
-  }
-}
-
-/** Step 2: provision via npm run create-droplet. PROV-01. Fatal on non-zero. */
+/** Step 1: provision via npm run create-droplet. PROV-01. Fatal on non-zero. */
 function provision(): void {
   console.log("\n🚀  Provisioning droplet (npm run create-droplet)…");
   const code = runNpmScript("create-droplet");
@@ -311,10 +294,7 @@ async function main(): Promise<void> {
     );
   }
 
-  // Step 1: optional --fresh teardown.
-  maybeFreshReset();
-
-  // Step 2: provision.
+  // Step 1: provision.
   provision();
 
   // Step 3: load droplet info.

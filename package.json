@@ -6,7 +6,6 @@
   "scripts": {
     "create-droplet": "tsx scripts/create-droplet.ts",
     "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts",
-    "destroy-droplet": "tsx scripts/destroy-droplet.ts",
     "smoke-test": "tsx scripts/smoke-test.ts",
     "verify:phase-1": "tsx scripts/verify/phase-1.ts"
   },
