@@ -7,7 +7,7 @@ last_updated: "2026-05-12T00:00:00Z"
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 5
+  total_plans: 12
   completed_plans: 3
   percent: 25
 ---
@@ -59,9 +59,12 @@ Recent additions (2026-05-11):
 
 - Run smoke-test against real DO droplet + real GitHub user to validate Phase 1 success criteria 1–5 (PROV-01/02, BACKUP-01/02/03, ACCESS-01, TEST-01, TEST-02)
 - On smoke-test pass: mark Phase 1 complete; transition to Phase 2 (Monitoring)
+- Phase 2 planned 2026-05-12: 02-01 (instrument `github-backup.sh` + `bootstrap.sh` for `last-run.json` writer + `/var/lib/github-backup` mode 700) + 02-02 (`droplet/github-backup-status.sh` reader/formatter, text+JSON, D-10 staleness lookup table) + 02-03 (`scripts/status.ts` local SSH wrapper + npm script) + 02-04 (`scripts/verify/phase-2.ts` + npm script). Waves: 1 = {01, 02} parallel; 2 = {03}; 3 = {04}. last-run.json schema locked in Plan 01 and re-stated in Plans 02 + 04 for self-containment. Webhook amendment from 2026-05-11 explicitly deferred to Phase 3 per CONTEXT.md.
 - Phase 3 plan must capture: Caddy reverse-proxy config, LE issuance via ACME, `hostname` + `letsEncryptEmail` config keys, systemd unit for listener, TEST-03 design
 - Phase 5 planned 2026-05-12: 05-01 (bootstrap idempotency in `scripts/bootstrap-droplet.ts`) + 05-02 (`scripts/verify/phase-5.ts` + README Lifecycle). Both Wave 1, no file overlap. SC#3 (listener survival) covered by Group 5 probe-gated on `github-backup-webhook.service` install — activates after Phase 3 ships.
-- Revisit smoke-test step 8 (`gh api` user-vs-org logic) at Phase 6 (multi-source)
+- Phase 6 planned 2026-05-12: 06-01 (TS: extend `Config` w/ `githubSources` + `repos.allow/deny`, multi-source `backup.env` writer in `bootstrap-droplet.ts`, upload `droplet/lib/*.sh`, wire `migrate-mirrors` + `verify:phase-6` npm scripts) + 06-02 (bash: extract `droplet/lib/detect-account-type.sh` D-05, new `droplet/lib/filter-repos.sh` glob filter, rewrite `github-backup.sh` outer source loop + REPOS-01 filter + namespaced layout + legacy auto-migration D-08 + per-source `BACKUP_SOURCE_SUMMARY` D-16) + 06-03 (`scripts/migrate-mirrors.ts` D-09, `scripts/verify/phase-6.ts` 5 groups inc. REPOS-01 deny-on-disk + slot-cross-check, smoke-test extension, `config.example.json` 2-source example, README Multi-source section). Waves: 1 = {06-01, 06-02} parallel (no file overlap); 2 = {06-03}. Slot algorithm contract documented in both 06-01 task 2 and 06-02 task 3.
+- Cross-phase contract: Phase 3 plan MUST source `droplet/lib/filter-repos.sh` in the webhook handler so REPOS-01 SC#4 (deny wins) applies to webhook-triggered syncs (informational in 06-03 group 6; assertion owned by Phase 3 verify).
+- Revisit smoke-test step 8 (`gh api` user-vs-org logic) RESOLVED by Phase 6 plan 06-02 task 1 (`detect-account-type.sh`)
 
 ## Plan-checker notes (Phase 1, non-blocking)
 

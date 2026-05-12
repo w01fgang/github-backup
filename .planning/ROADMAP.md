@@ -75,6 +75,12 @@
 
 **Decision**: Caddy + Let's Encrypt over nginx/manual or plain-HTTP-HMAC. Caddy auto-handles cert lifecycle; LE is free; GitHub requires/prefers valid TLS. Operator burden: one DNS record.
 
+**Plans:** 4 plans
+- [ ] 03-01-sync-handler-PLAN.md — Extract `droplet/sync-one-repo.sh` from `github-backup.sh`; per-repo lock under global cron lock; new `BACKUP_REPO_RESULT` log line.
+- [ ] 03-02-listener-PLAN.md — `droplet/webhook-listener.js` (vanilla Node, zero deps), `Caddyfile.template`, `github-backup-webhook.service`, bootstrap.sh idempotent install.
+- [ ] 03-03-operator-scaffolding-PLAN.md — `scripts/lib/config.ts` adds `webhookHostname`+`webhookTestRepo`; firewall 80+443; `bootstrap-droplet` generates+preserves `WEBHOOK_SECRET`, uploads non-`.sh` files, `--rotate-webhook-secret`; new `scripts/register-webhooks.ts`.
+- [ ] 03-04-verify-readme-PLAN.md — `scripts/verify/phase-3.ts` (6 assertion groups), README `## Webhook setup` section, `verify:phase-3` npm script.
+
 ---
 
 ### Phase 4: Restore
@@ -135,6 +141,11 @@
 7. Per-source status visible in monitoring (Phase 2)
 
 **Depends on**: Phases 1, 2, 3
+
+**Plans:** 3 plans
+- [ ] 06-01-config-and-env-PLAN.md — TS `Config` schema (multi-source + REPOS-01), `backup.env` writer, `droplet/lib/` upload, npm script wiring (Wave 1)
+- [ ] 06-02-droplet-loop-PLAN.md — `droplet/lib/detect-account-type.sh` + `droplet/lib/filter-repos.sh`, multi-source loop + namespaced layout + legacy migration in `github-backup.sh`, per-source mkdir in `bootstrap.sh` (Wave 1)
+- [ ] 06-03-verify-and-helpers-PLAN.md — `scripts/migrate-mirrors.ts`, `scripts/verify/phase-6.ts` (5 groups), smoke-test extension, `config.example.json`, README Multi-source section (Wave 2)
 
 ---
 
