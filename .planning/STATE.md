@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-05-10T10:16:52.957Z"
+status: phase-1-executed-unverified
+last_updated: "2026-05-11T00:00:00Z"
 progress:
-  total_phases: 5
-  completed_phases: 1
+  total_phases: 6
+  completed_phases: 0
   total_plans: 3
   completed_plans: 3
-  percent: 100
+  percent: 17
 ---
 
 # State
@@ -17,20 +17,39 @@ progress:
 **Project**: github-backup
 **Version**: v1.0
 **Initialized**: 2026-04-29
-**Status**: phase-1-planned
+**Status**: phase-1-executed-unverified
 
 ## Current Position
 
-Phase: 01 (verify-pipeline) — EXECUTING
-Plan: 1 of 3
+Phase: 01 (verify-pipeline) — code shipped, end-to-end smoke not yet run against real DO + GitHub.
 
 - Milestone: v1
-- Phase: 1 (Verify pipeline) — 3 plans created, ready to execute
-- Plan: 01-01 (foundation) → 01-02 (verify-script) → 01-03 (smoke-test, live infra)
+- Phase: 1 (Verify pipeline) — 3 plans coded; NR-01..09 fixes applied from review iter3
+- Roadmap reordered 2026-05-11 (Option B): webhook listener moved to Phase 3 to ship core "push → near-instant sync" value earlier; restore → 4, idempotency → 5, multi-source+REPOS-01 → 6
+
+### Phase dir → roadmap-number mapping
+
+Dirs renamed 2026-05-12 (at start of plan-phase 3) to match new roadmap order:
+
+| Dir | Roadmap # | Prior dir name |
+|-----|-----------|----------------|
+| `01-verify-pipeline` | 1 | (unchanged) |
+| `02-monitoring` | 2 | (unchanged) |
+| `03-webhook` | 3 | `06-webhook` |
+| `04-restore` | 4 | `03-restore` |
+| `05-teardown` | 5 | `04-teardown` |
+| `06-multi-source` | 6 | `05-multi-source` |
+
+Inner CONTEXT/DISCUSSION files renumbered in lock-step (e.g. `06-CONTEXT.md` → `03-CONTEXT.md`).
 
 ## Decisions
 
 (See PROJECT.md → Key Decisions, `.planning/phases/01-verify-pipeline/01-CONTEXT.md`, `.planning/phases/02-monitoring/02-CONTEXT.md`)
+
+Recent additions (2026-05-11):
+- Webhook TLS via Caddy + Let's Encrypt; operator provides DNS A record before bootstrap
+- Per-repo allow/deny globs (REPOS-01) added to Phase 6
+- Root SSH accepted for v1; non-root deferred to v2
 
 ## Blockers
 
@@ -38,10 +57,11 @@ Plan: 1 of 3
 
 ## Pending
 
-- Run `/gsd-execute-phase 1` to execute Phase 1 (foundation + verify-script are autonomous; smoke-test plan is non-autonomous and will checkpoint for live DO + GitHub creds)
-- Run `/gsd-plan-phase 2` to create the executable plan for Phase 2 (Monitoring)
-- Last session stopped at: Phase 1 plans created + checked (2026-04-30)
+- Run smoke-test against real DO droplet + real GitHub user to validate Phase 1 success criteria 1–5 (PROV-01/02, BACKUP-01/02/03, ACCESS-01, TEST-01, TEST-02)
+- On smoke-test pass: mark Phase 1 complete; transition to Phase 2 (Monitoring)
+- Phase 3 plan must capture: Caddy reverse-proxy config, LE issuance via ACME, `hostname` + `letsEncryptEmail` config keys, systemd unit for listener, TEST-03 design
+- Revisit smoke-test step 8 (`gh api` user-vs-org logic) at Phase 6 (multi-source)
 
 ## Plan-checker notes (Phase 1, non-blocking)
 
-5 quality refinements flagged (4 LOW, 1 MED), no blockers. See `.planning/phases/01-verify-pipeline/` plan files. MED issue (#4): smoke-test step 8 duplicates `gh api` user-vs-org logic from `droplet/github-backup.sh` — single-source safe for Phase 1, revisit at Phase 5 (multi-source).
+5 quality refinements flagged (4 LOW, 1 MED), no blockers. See `.planning/phases/01-verify-pipeline/` plan files. MED issue (#4): smoke-test step 8 duplicates `gh api` user-vs-org logic from `droplet/github-backup.sh` — single-source safe for Phase 1, revisit at Phase 6 (multi-source).

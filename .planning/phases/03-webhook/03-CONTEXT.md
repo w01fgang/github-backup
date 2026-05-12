@@ -1,7 +1,9 @@
-# Phase 6: Webhook listener - Context
+# Phase 3: Webhook listener - Context
 
 **Gathered:** 2026-05-11
 **Status:** Ready for planning
+
+**Numbering note (2026-05-12):** This phase was originally numbered Phase 6 when the discussion was captured. ROADMAP.md was reordered on 2026-05-11 so that webhook now ships as Phase 3 (depended on by the renumbered Phase 5 idempotency + Phase 6 multi-source phases). All references to "Phase 6" in this file refer to the work in THIS file — verify script is `scripts/verify/phase-3.ts`, `npm run verify:phase-3`. References to "Phase 3 baseline" / `restoreTestRepo` now point to Phase 4 (restore) — see `04-restore/04-CONTEXT.md`. References to "Phase 4 D-NN" (idempotency) now point to Phase 5 (`05-teardown/05-CONTEXT.md`). References to "Phase 5 D-NN" (multi-source) now point to Phase 6 (`06-multi-source/06-CONTEXT.md`).
 
 <domain>
 ## Phase Boundary
@@ -19,7 +21,7 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 - `WEBHOOK_EVENT_SUMMARY` droplet-side log line + `/var/lib/github-backup/last-webhook-event.json` (sibling to Phase 2's `last-run.json`) for the future status command
 - Firewall: open TCP/443 inbound to `0.0.0.0/0` (HMAC is the real security layer; not worth maintaining a GitHub source-IP allowlist at single-operator scale)
 - `webhookHostname` field in `config.json` (operator brings a domain — required for HTTPS)
-- `scripts/verify/phase-6.ts` + `npm run verify:phase-6` end-to-end proof (signed POST → mirror updated within 30s)
+- `scripts/verify/phase-3.ts` + `npm run verify:phase-3` end-to-end proof (signed POST → mirror updated within 30s)
 - README operator section: how to register a domain, what records to point at the droplet, how to register webhooks, how to check listener status
 
 **Out of scope:**
@@ -145,9 +147,9 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 
 - **D-24:** **Existing droplets are migrated by re-running `npm run create-droplet`** — its existing idempotency logic adds the new firewall rules without churning the droplet. No special migration command needed. Documented in the README's "upgrading" section.
 
-### verify:phase-6
+### verify:phase-3
 
-- **D-25:** **`scripts/verify/phase-6.ts` + `npm run verify:phase-6`** follows the Phase 1/3/4 template: TS + tsx, fail-fast `assert(cond, msg)`, exit 0 all-pass.
+- **D-25:** **`scripts/verify/phase-3.ts` + `npm run verify:phase-3`** follows the Phase 1 template: TS + tsx, fail-fast `assert(cond, msg)`, exit 0 all-pass.
 - **D-26:** **Assertion groups (in order):**
   1. **Pre-conditions:** Droplet alive, `cfg.webhookHostname` resolves to droplet IP (DNS check), `https://<webhookHostname>/webhook/github` returns 200 to a `ping` event signed with the right secret, `systemctl is-active github-backup-webhook` returns `active`, Caddy is serving HTTPS with a valid LE cert.
   2. **Source resolution:** Send a signed event with a source NOT in `cfg.sources` → assert 404.
@@ -175,7 +177,7 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 ### Project requirements
 - `.planning/PROJECT.md` — Webhook + cron hybrid (Key Decision 2026-05-11), single-operator, runtime-only token policy. Webhook secret stored alongside `GITHUB_TOKEN` in `backup.env`. Webhook needs public ingress (firewall change required).
 - `.planning/REQUIREMENTS.md` — WEBHOOK-01 (HTTPS + HMAC), WEBHOOK-02 (push event triggers sync; 401 on bad sig). PROV-02 expanded to include "webhook listener" install. BACKUP-03 expanded to include webhook secret in `backup.env`. MON-01 expanded to include last webhook event.
-- `.planning/ROADMAP.md` §Phase 6 — Goal + 5 success criteria. Depends on Phases 1, 4, 5.
+- `.planning/ROADMAP.md` §Phase 3 — Goal + 7 success criteria. Depends on Phase 1.
 
 ### Phase 1 baseline (depended-on, do not regress)
 - `.planning/phases/01-verify-pipeline/01-CONTEXT.md` — TS+tsx+npm convention, `verify:phase-N` shape, BACKUP_SUMMARY contract on the droplet, NR-06 global flock semantics. Read the "Post-phase amendment 2026-05-11" at the bottom (destroy-droplet removed; smoke `--fresh` removed).
@@ -183,13 +185,13 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 - `droplet/github-backup.sh` — Per-repo logic to extract into `sync-one-repo.sh` (D-15). Keep `BACKUP_SUMMARY` emitter contract intact.
 - `scripts/lib/{config,ssh,doctl}.ts` — Reusable for `register-webhooks.ts` and `verify/phase-6.ts`. Add `webhookHostname?: string` and `webhookTestRepo?: string` to the `Config` type.
 
-### Phase 2 / Phase 4 / Phase 5 baselines
-- `.planning/phases/02-monitoring/02-CONTEXT.md` — Status command schema. Read the "Post-phase amendment 2026-05-11" — Phase 6 ships `last-webhook-event.json`, Phase 2's status reader gains a small additive change (tracked under THIS phase's plan, not Phase 2).
-- `.planning/phases/04-teardown/04-CONTEXT.md` (rewritten 2026-05-11) — D-07 + D-Discretion notes Phase 4 verify must assert listener survives bootstrap re-run once Phase 6 lands. Phase 6 ships the systemd unit + `daemon-reload`/`restart` hook in `droplet/bootstrap.sh` (D-19/D-20).
-- `.planning/phases/05-multi-source/05-CONTEXT.md` — D-03 (`SHELL_SAFE_RE` source-name shape) flows to D-08 here. D-04 (`GITHUB_SOURCES` env var) is the source-of-truth for "what sources do we accept webhooks for". D-05 (`detect-account-type.sh`) reusable in `register-webhooks` (D-21).
+### Phase 2 / Phase 5 / Phase 6 baselines (renumbered — see numbering note at top)
+- `.planning/phases/02-monitoring/02-CONTEXT.md` — Status command schema. Read the "Post-phase amendment 2026-05-11" — Phase 3 (this phase) ships `last-webhook-event.json`, Phase 2's status reader gains a small additive change (tracked under THIS phase's plan, not Phase 2).
+- `.planning/phases/05-teardown/05-CONTEXT.md` (formerly "Phase 4") — D-07 + D-Discretion notes Phase 5 verify must assert listener survives bootstrap re-run once this phase lands. This phase ships the systemd unit + `daemon-reload`/`restart` hook in `droplet/bootstrap.sh` (D-19/D-20).
+- `.planning/phases/06-multi-source/06-CONTEXT.md` (formerly "Phase 5") — D-03 (`SHELL_SAFE_RE` source-name shape) flows to D-08 here. D-04 (`GITHUB_SOURCES` env var) is the source-of-truth for "what sources do we accept webhooks for". D-05 (`detect-account-type.sh`) reusable in `register-webhooks` (D-21).
 
-### Phase 3 baseline (no direct interaction)
-- `.planning/phases/03-restore/03-CONTEXT.md` — `restoreTestRepo` field shape is the template for `webhookTestRepo` (D-25 group 4).
+### Phase 4 baseline (no direct interaction — renumbered)
+- `.planning/phases/04-restore/04-CONTEXT.md` (formerly "Phase 3") — `restoreTestRepo` field shape is the template for `webhookTestRepo` (D-25 group 4).
 
 ### External docs (do NOT inline; planner Reads as needed)
 - GitHub webhooks: https://docs.github.com/en/webhooks/webhook-events-and-payloads#push (push event payload schema)
@@ -226,11 +228,11 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 - **New file:** `droplet/github-backup-webhook.service` — systemd unit template.
 - **Edit:** `droplet/bootstrap.sh` — Install Caddy + nodejs, write Caddyfile + listener.js + systemd unit, `daemon-reload`, `enable --now`, `caddy reload` (D-19).
 - **New file:** `scripts/register-webhooks.ts` — Operator-side TS command (D-21/D-22).
-- **New file:** `scripts/verify/phase-6.ts` — Six assertion groups (D-26).
+- **New file:** `scripts/verify/phase-3.ts` — Six assertion groups (D-26).
 - **Edit:** `scripts/create-droplet.ts` — Add 80 + 443 to firewall inbound rules; preserve idempotency (D-23).
 - **Edit:** `scripts/bootstrap-droplet.ts` — Ensure `--rotate-webhook-secrets` flag plumbing; ensure on first bootstrap the generated webhook secrets are echoed to stdout for the operator (D-07).
 - **Edit:** `scripts/lib/config.ts` — Add `webhookHostname` and `webhookTestRepo` to `Config`; tighten `loadConfig` to require `webhookHostname`.
-- **Edit:** `package.json` — Add `register-webhooks`, `verify:phase-6` script entries.
+- **Edit:** `package.json` — Add `register-webhooks`, `verify:phase-3` script entries.
 - **Edit:** `README.md` — New section: webhook setup (DNS, register, troubleshoot). Update Lifecycle paragraph to mention `journalctl -u github-backup-webhook -f`.
 - **No change:** `droplet/install-cron.sh` (cron entry unchanged — still calls `github-backup.sh`), `scripts/lib/{ssh,doctl}.ts`.
 
@@ -267,5 +269,5 @@ Public HTTPS endpoint on the droplet receives GitHub `push` events, verifies the
 
 ---
 
-*Phase: 06-webhook*
-*Context gathered: 2026-05-11*
+*Phase: 03-webhook*
+*Context gathered: 2026-05-11 (header normalized 2026-05-12 after roadmap renumber)*
