@@ -1,15 +1,15 @@
 # Roadmap — github-backup v1
 
-6 phases | 15 requirements | All v1 requirements covered
+6 phases | 16 requirements | All v1 requirements covered
 
 | # | Phase | Goal | Requirements | UI hint |
 |---|-------|------|--------------|---------|
-| 1 | Verify pipeline | Existing code runs end-to-end on real droplet, smoke-tested | PROV-01, PROV-02, BACKUP-01, BACKUP-02, BACKUP-03, ACCESS-01, TEST-01, TEST-02 | no |
+| 1 | Verify pipeline | Existing code runs end-to-end on real droplet, cron-path smoke-tested | PROV-01, PROV-02, BACKUP-01, BACKUP-02, BACKUP-03, ACCESS-01, TEST-01, TEST-02 | no |
 | 2 | Monitoring | Operator can answer "did backup run, did it work, am I out of disk" | MON-01, MON-02, MON-03 | no |
-| 3 | Restore | Documented + tested clone-back path; refs preserved | RESTORE-01, RESTORE-02 | no |
-| 4 | Bootstrap idempotency | `bootstrap-droplet` re-run is safe (no duplicate cron, no clobbered env) | TEARDOWN-01 | no |
-| 5 | Multi-source | Single droplet backs up N users/orgs from one config | MULTI-01 | no |
-| 6 | Webhook listener | GitHub push events trigger per-repo sync within seconds | WEBHOOK-01, WEBHOOK-02 | no |
+| 3 | Webhook listener | GitHub push events trigger per-repo sync within seconds; TLS via Caddy + Let's Encrypt | WEBHOOK-01, WEBHOOK-02, TEST-03 | no |
+| 4 | Restore | Documented + tested clone-back path; refs preserved | RESTORE-01, RESTORE-02 | no |
+| 5 | Bootstrap idempotency | `bootstrap-droplet` re-run is safe (no duplicate cron, no clobbered env, listener restarts cleanly) | TEARDOWN-01 | no |
+| 6 | Multi-source + per-repo filtering | Single droplet backs up N users/orgs from one config with per-repo allow/deny globs | MULTI-01, REPOS-01 | no |
 
 ---
 
@@ -52,7 +52,32 @@
 
 ---
 
-### Phase 3: Restore
+### Phase 3: Webhook listener
+
+**Goal**: GitHub push events trigger per-repo mirror update within seconds; cron sweep (Phase 1) becomes safety net rather than primary trigger.
+
+**Requirements**: WEBHOOK-01, WEBHOOK-02, TEST-03
+
+**Success criteria**:
+1. Operator points a DNS A record (e.g. `backup.example.com`) at droplet IP before bootstrap
+2. Caddy reverse proxy on droplet auto-issues + renews Let's Encrypt cert for the configured hostname
+3. Public HTTPS endpoint (`https://<hostname>/webhook/github`) accepts GitHub `push` event payloads
+4. Requests with valid `X-Hub-Signature-256` HMAC trigger sync of the named repo; invalid signatures return 401 and are logged
+5. End-to-end test (TEST-03): register webhook on a real test repo, push a commit, observe mirror updated within 30 seconds
+6. Listener survives reboot (systemd unit)
+7. Single-source for now: incoming event resolves to `/opt/github-backups/<owner>_<repo>.git` (multi-source routing added in Phase 6)
+
+**Depends on**: Phase 1
+
+**Config additions**:
+- `hostname`: FQDN that operator pointed at droplet IP (required for TLS)
+- `letsEncryptEmail`: contact email for ACME registration
+
+**Decision**: Caddy + Let's Encrypt over nginx/manual or plain-HTTP-HMAC. Caddy auto-handles cert lifecycle; LE is free; GitHub requires/prefers valid TLS. Operator burden: one DNS record.
+
+---
+
+### Phase 4: Restore
 
 **Goal**: Operator can recover any single repo back to a working clone with all branches/tags intact.
 
@@ -65,9 +90,18 @@
 
 **Depends on**: Phase 1
 
+**Note**: Mostly documentation + verification. Standard `git clone` over SSH already works (ACCESS-01).
+
+**Plans:** 3 plans
+- [ ] 04-01-restore-helper-PLAN.md — Add `scripts/restore.ts` (`npm run restore -- <owner>/<repo> <target>`), `restoreTestRepo` field on Config, package.json wiring
+- [ ] 04-02-verify-script-PLAN.md — Implement `scripts/verify/phase-4.ts` (D-02 ref-equivalence via sorted `for-each-ref` bare-vs-bare diff; D-03 drops self-push)
+- [ ] 04-03-readme-docs-PLAN.md — Rewrite README §Recovery with two scenarios (D-07); cross-link with §Clone-a-mirrored-repo
+
+> Plan files live in `.planning/phases/04-restore/`. CONTEXT.md inside that dir is the canonical Phase 4 context — its "Phase 3" header text predates the 2026-05-11 ROADMAP reorder; decisions remain valid.
+
 ---
 
-### Phase 4: Bootstrap idempotency
+### Phase 5: Bootstrap idempotency
 
 **Goal**: `bootstrap-droplet` is safe to re-run on a live droplet — no duplicate cron entries, no clobbered `backup.env`, no orphaned listener processes.
 
@@ -76,47 +110,34 @@
 **Success criteria**:
 1. Re-running `bootstrap-droplet` on a live droplet does not duplicate cron entries
 2. Re-running preserves existing `backup.env` (token, webhook secret) by default; `--rotate-env` flag forces fresh upload
-3. Re-running restarts the webhook listener cleanly (after Phase 6)
+3. Re-running restarts the webhook listener cleanly (Phase 3 systemd unit reloaded, not duplicated)
+4. Re-running preserves Caddy site config + LE certs (no re-issue storm)
 
-**Depends on**: Phase 1 (and Phase 6 once webhook listener exists)
+**Depends on**: Phases 1, 3
 
 **Note**: Automated droplet teardown (`destroy-droplet`) is OUT OF SCOPE per PROJECT.md (2026-05-11). Manual DO-dashboard removal is the documented teardown path.
 
 ---
 
-### Phase 5: Multi-source
+### Phase 6: Multi-source + per-repo filtering
 
-**Goal**: One droplet backs up N users/orgs declared in config, isolated under namespaced paths.
+**Goal**: One droplet backs up N users/orgs declared in config with optional per-repo allow/deny filtering, isolated under namespaced paths. Webhook listener routes per-source events.
 
-**Requirements**: MULTI-01
-
-**Success criteria**:
-1. `config.json` accepts `githubSources: ["userA", "orgB"]` (back-compat with single `githubUserOrOrg`)
-2. Backup script iterates all sources, mirrors each into `/opt/github-backups/<source>/<owner>_<repo>.git`
-3. Smoke test with 2 sources passes
-4. Per-source status visible in monitoring (Phase 2)
-
-**Depends on**: Phases 1, 2
-
----
-
-### Phase 6: Webhook listener
-
-**Goal**: GitHub push events trigger per-repo mirror update within seconds; cron sweep (Phase 1) becomes safety net rather than primary trigger.
-
-**Requirements**: WEBHOOK-01, WEBHOOK-02
+**Requirements**: MULTI-01, REPOS-01
 
 **Success criteria**:
-1. Public HTTPS endpoint on droplet (e.g. `https://<droplet>/webhook/github`) accepts GitHub `push` event payloads
-2. Requests with valid `X-Hub-Signature-256` HMAC trigger sync of the named repo; invalid signatures return 401 and are logged
-3. End-to-end test: register webhook on a real test repo, push a commit, observe mirror updated within 30 seconds
-4. Listener survives reboot (systemd unit) and bootstrap re-run (Phase 4)
-5. Multi-source aware (Phase 5): incoming event resolves to correct `<source>/<owner>_<repo>.git` mirror path
+1. `config.json` accepts `githubSources: [{owner, repos: {allow: [...], deny: [...]}}]` (back-compat with single `githubUserOrOrg`)
+2. Backup script iterates all sources, applies allow/deny globs, mirrors each into `/opt/github-backups/<owner>/<owner>_<repo>.git`
+3. Webhook listener resolves incoming event to correct `<owner>/<owner>_<repo>.git` mirror path
+4. Deny wins on allow/deny conflict
+5. Empty allow-list = all repos of source
+6. Smoke test with 2 sources + allow-list + deny-list passes
+7. Per-source status visible in monitoring (Phase 2)
 
-**Depends on**: Phases 1, 4, 5
+**Depends on**: Phases 1, 2, 3
 
 ---
 
 ## Coverage
 
-All 15 v1 requirements mapped. No requirement appears in more than one phase.
+All 16 v1 requirements mapped. No requirement appears in more than one phase.

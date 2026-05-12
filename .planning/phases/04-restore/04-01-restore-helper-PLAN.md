@@ -150,8 +150,10 @@ Create `scripts/restore.ts`. Top-level flow:
 7. Step B — clone working copy from local bare mirror:
    - `git clone "${localMirrorPath}" "${workingClonePath}"` via runVisible. No GIT_SSH_COMMAND needed (local clone). All tags + branches come along automatically because the source is a bare mirror.
 
-8. Print success summary:
+8. Print success summary. **First stdout line on success MUST be the machine-readable mirror-path handshake** — plan 04-02's verify:phase-4 parses this line to locate the intermediate bare mirror for its bare-vs-bare ref-equivalence diff. Do not move or rename the prefix string; verify regex anchors on `^RESTORE_LOCAL_MIRROR=(.+)$`.
+
    ```
+   RESTORE_LOCAL_MIRROR=${localMirrorPath}
    ✓ Restored ${owner}/${repo}
        working clone: ${workingClonePath}
        local mirror : ${localMirrorPath}  (intermediate, safe to delete)
@@ -175,7 +177,7 @@ Create `scripts/restore.ts`. Top-level flow:
   <action>
 Edit `package.json`:
 1. Inside `"scripts"`, add `"restore": "tsx scripts/restore.ts"` after the existing `"verify:phase-1"` entry, before the closing `}`.
-2. Keep alphabetical-ish grouping consistent with what is there — currently it is roughly logical order (create → bootstrap → smoke → verify). Add `restore` AFTER `verify:phase-1` since it is a Phase 4 deliverable, but BEFORE the placeholder `verify:phase-4` which plan 03-02 will add later.
+2. Keep alphabetical-ish grouping consistent with what is there — currently it is roughly logical order (create → bootstrap → smoke → verify). Add `restore` AFTER `verify:phase-1` since it is a Phase 4 deliverable, but BEFORE the placeholder `verify:phase-4` which plan 04-02 will add later.
 
 Verify by running `npm run restore -- bad/args/here 2>&1 | head -5` — expected: bail with the usage message from task 2 step 2. (No live droplet needed for this smoke; argument validation runs before loadConfig.)
   </action>
