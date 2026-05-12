@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: phase-1-executed-unverified
-last_updated: "2026-05-11T00:00:00Z"
+last_updated: "2026-05-12T00:00:00Z"
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 3
+  total_plans: 5
   completed_plans: 3
-  percent: 17
+  percent: 25
 ---
 
 # State
@@ -60,6 +60,7 @@ Recent additions (2026-05-11):
 - Run smoke-test against real DO droplet + real GitHub user to validate Phase 1 success criteria 1–5 (PROV-01/02, BACKUP-01/02/03, ACCESS-01, TEST-01, TEST-02)
 - On smoke-test pass: mark Phase 1 complete; transition to Phase 2 (Monitoring)
 - Phase 3 plan must capture: Caddy reverse-proxy config, LE issuance via ACME, `hostname` + `letsEncryptEmail` config keys, systemd unit for listener, TEST-03 design
+- Phase 5 planned 2026-05-12: 05-01 (bootstrap idempotency in `scripts/bootstrap-droplet.ts`) + 05-02 (`scripts/verify/phase-5.ts` + README Lifecycle). Both Wave 1, no file overlap. SC#3 (listener survival) covered by Group 5 probe-gated on `github-backup-webhook.service` install — activates after Phase 3 ships.
 - Revisit smoke-test step 8 (`gh api` user-vs-org logic) at Phase 6 (multi-source)
 
 ## Plan-checker notes (Phase 1, non-blocking)
