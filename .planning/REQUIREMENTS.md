@@ -25,9 +25,9 @@
 
 ### Monitoring
 
-- [ ] **MON-01**: Operator can check last cron sweep timestamp + exit status, AND last webhook event timestamp + delivery outcome
-- [ ] **MON-02**: Operator can see per-repo update status from last run (cron or webhook)
-- [ ] **MON-03**: Operator can check disk usage on backup volume
+- [x] **MON-01**: Operator can check last cron sweep timestamp + exit status, AND last webhook event timestamp + delivery outcome
+- [x] **MON-02**: Operator can see per-repo update status from last run (cron or webhook)
+- [x] **MON-03**: Operator can check disk usage on backup volume
 
 ### Restore
 

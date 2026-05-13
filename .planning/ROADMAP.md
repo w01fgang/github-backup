@@ -50,6 +50,12 @@
 
 **Depends on**: Phase 1
 
+**Plans:** 4 plans
+- [x] 02-01-PLAN.md — Instrument `droplet/github-backup.sh` to write atomic `/var/lib/github-backup/last-run.json`; `droplet/bootstrap.sh` creates state dir mode 700 (Wave 1)
+- [x] 02-02-PLAN.md — `droplet/github-backup-status.sh` reader/formatter — text default + `--json`, D-04 log fallback, D-10 staleness lookup, D-13 exit codes (Wave 1)
+- [x] 02-03-PLAN.md — `scripts/status.ts` local SSH wrapper + `npm run status` script entry (Wave 2)
+- [x] 02-04-PLAN.md — `scripts/verify/phase-2.ts` end-to-end harness + `npm run verify:phase-2` script entry (Wave 3)
+
 ---
 
 ### Phase 3: Webhook listener
