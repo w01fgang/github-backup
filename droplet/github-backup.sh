@@ -150,36 +150,17 @@ for REPO_FULL in "${REPOS[@]}"; do
   OWNER="${REPO_FULL%%/*}"
   NAME="${REPO_FULL##*/}"
 
-  # Flat naming: owner_reponame.git  (avoids subdirectory creation)
-  MIRROR_PATH="${BACKUP_DIR}/${OWNER}_${NAME}.git"
-
-  # HTTPS clone URL — authenticated via the gh credential helper
-  CLONE_URL="https://github.com/${REPO_FULL}.git"
-
-  if [[ -d "${MIRROR_PATH}" ]]; then
-    # ── Update existing mirror ─────────────────────────────────────────
-    # `remote update --prune` fetches all remotes and removes refs that
-    # no longer exist upstream (deleted branches, tags, etc.)
-    log "  [UPDATE] ${REPO_FULL}  →  ${MIRROR_PATH}"
-    if git -C "${MIRROR_PATH}" remote update --prune >>"${LOG_FILE}" 2>&1; then
-      log "           ✓ Updated"
-      (( SUCCESS++ ))
-    else
-      log "           ✗ Update FAILED (see above for details)"
-      (( FAIL++ ))
-    fi
+  # Per-repo work (clone or update + per-repo lock + per-repo result line)
+  # is delegated to sync-one-repo.sh — same handler the webhook listener calls
+  # (D-15). The global flock at /var/lock/github-backup.lock acquired above on
+  # fd 9 is RETAINED around the whole loop (Phase 1 NR-06 unchanged); sync-one-
+  # repo.sh additionally takes a per-repo lock on fd 8 (D-16). The wrapper here
+  # only tallies SUCCESS/FAIL based on the helper's exit code and keeps the
+  # summary line below unchanged.
+  if "${BACKUP_DIR}/sync-one-repo.sh" "${GITHUB_USER_OR_ORG}" "${OWNER}" "${NAME}"; then
+    (( SUCCESS++ ))
   else
-    # ── Clone new mirror ───────────────────────────────────────────────
-    # --mirror creates a bare repo and sets up refspecs to mirror all refs
-    # (branches, tags, notes, etc.) — unlike a regular bare clone.
-    log "  [CLONE]  ${REPO_FULL}  →  ${MIRROR_PATH}"
-    if git clone --mirror "${CLONE_URL}" "${MIRROR_PATH}" >>"${LOG_FILE}" 2>&1; then
-      log "           ✓ Cloned"
-      (( SUCCESS++ ))
-    else
-      log "           ✗ Clone FAILED (see above for details)"
-      (( FAIL++ ))
-    fi
+    (( FAIL++ ))
   fi
 done
 
