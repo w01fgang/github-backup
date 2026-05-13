@@ -1,0 +1,208 @@
+#!/usr/bin/env node
+/**
+ * scripts/register-webhooks.ts
+ *
+ * Idempotently create GitHub webhooks for every repo under
+ * cfg.githubUserOrOrg. Reads WEBHOOK_SECRET from the droplet's backup.env
+ * over SSH so there is no local secret cache that can drift after
+ * `bootstrap-droplet --rotate-webhook-secret`.
+ *
+ * Usage:
+ *   npm run register-webhooks                # create missing webhooks; no-op on existing
+ *   npm run register-webhooks -- --update    # also PATCH existing webhooks (post --rotate-webhook-secret)
+ *   npm run register-webhooks -- --dry-run   # show what would happen, no API calls
+ *
+ * Refs: D-21, D-22 (.planning/phases/03-webhook/03-CONTEXT.md)
+ */
+
+import { execSync } from "child_process";
+import { bail, loadConfig, loadDropletInfo } from "./lib/config";
+import { sshFlags, runCapture } from "./lib/ssh";
+
+function gh(args: string): string {
+  return runCapture(`gh api ${args}`);
+}
+
+interface CmdResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+function ghIgnoreStderr(args: string): CmdResult {
+  try {
+    return { ok: true, stdout: gh(args), stderr: "" };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/**
+ * Run a local command via execSync with stdin = body. Used for gh api
+ * POST/PATCH with --input -, which avoids any shell-quoting of the JSON
+ * body.
+ */
+function ghJson(method: "POST" | "PATCH", url: string, body: object): void {
+  execSync(`gh api -X ${method} ${url} --input -`, {
+    input: JSON.stringify(body),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+async function main(): Promise<void> {
+  const update = process.argv.includes("--update");
+  const dryRun = process.argv.includes("--dry-run");
+
+  const cfg = loadConfig();
+  const droplet = loadDropletInfo();
+  const url = `https://${cfg.webhookHostname}/webhook/github`;
+
+  // ── Read WEBHOOK_SECRET from droplet over SSH ───────────────────────────
+  const sshCmd =
+    `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${droplet.ip} ` +
+    `'grep ^WEBHOOK_SECRET= /opt/github-backups/backup.env 2>/dev/null'`;
+  let secret = "";
+  try {
+    const line = runCapture(sshCmd).trim();
+    if (line.startsWith("WEBHOOK_SECRET=")) {
+      secret = line.slice("WEBHOOK_SECRET=".length).trim();
+    }
+  } catch (e) {
+    bail(
+      `Could not read WEBHOOK_SECRET from ${cfg.sshUser}@${droplet.ip}:/opt/github-backups/backup.env. ` +
+        `Run \`npm run bootstrap-droplet\` first, or check SSH key access. ` +
+        `(${e instanceof Error ? e.message : e})`
+    );
+  }
+  if (!/^[a-f0-9]{64}$/.test(secret)) {
+    bail(
+      `Remote WEBHOOK_SECRET malformed (expected 64 hex chars, got len=${secret.length}). Re-bootstrap.`
+    );
+  }
+
+  // ── Detect account type + list repos ────────────────────────────────────
+  const owner = cfg.githubUserOrOrg;
+  let acctType = "User";
+  try {
+    acctType = gh(`/users/${owner} --jq .type`).trim() || "User";
+  } catch {
+    acctType = "User";
+  }
+  const endpoint =
+    acctType === "Organization"
+      ? `/orgs/${owner}/repos?type=all&per_page=100`
+      : `/users/${owner}/repos?type=all&per_page=100`;
+
+  const fullNames = gh(`--paginate ${endpoint} --jq '.[].full_name'`)
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  console.log(`\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos`);
+  console.log(`     webhook URL: ${url}`);
+  if (dryRun) console.log(`     mode: DRY-RUN (no API calls will be made)\n`);
+
+  let registered = 0;
+  let alreadyPresent = 0;
+  let updated = 0;
+  let failed = 0;
+  let wouldRegister = 0;
+  let wouldUpdate = 0;
+
+  for (const full of fullNames) {
+    // List existing matching hook IDs (filtered by url).
+    const listRes = ghIgnoreStderr(
+      `repos/${full}/hooks --jq '.[] | select(.config.url == "${url}") | .id'`
+    );
+    if (!listRes.ok) {
+      console.log(
+        `   ✗ ${full}: list hooks failed (${listRes.stderr.split("\n")[0]})`
+      );
+      failed++;
+      continue;
+    }
+    const existingIds = listRes.stdout
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (existingIds.length === 0) {
+      // Create
+      if (dryRun) {
+        console.log(`   • would CREATE ${full}`);
+        wouldRegister++;
+        continue;
+      }
+      try {
+        ghJson("POST", `repos/${full}/hooks`, {
+          name: "web",
+          active: true,
+          events: ["push"],
+          config: { url, secret, content_type: "json", insecure_ssl: "0" },
+        });
+        console.log(`   ✓ CREATED ${full}`);
+        registered++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+        console.log(`   ✗ CREATE ${full} failed: ${msg}`);
+        failed++;
+      }
+      continue;
+    }
+
+    if (!update) {
+      console.log(
+        `   = ${full}: webhook already present (id=${existingIds[0]})`
+      );
+      alreadyPresent++;
+      continue;
+    }
+
+    // --update path: PATCH each matching hook with current secret.
+    if (dryRun) {
+      console.log(`   • would UPDATE ${full} (id=${existingIds.join(",")})`);
+      wouldUpdate++;
+      continue;
+    }
+    let allOk = true;
+    for (const id of existingIds) {
+      try {
+        ghJson("PATCH", `repos/${full}/hooks/${id}`, {
+          config: { url, secret, content_type: "json", insecure_ssl: "0" },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+        console.log(`   ✗ UPDATE ${full} (id=${id}) failed: ${msg}`);
+        allOk = false;
+      }
+    }
+    if (allOk) {
+      console.log(`   ✓ UPDATED ${full}`);
+      updated++;
+    } else {
+      failed++;
+    }
+  }
+
+  console.log(`\n📊  Summary:`);
+  if (dryRun) {
+    console.log(
+      `     dry-run: ${wouldRegister} would register, ${wouldUpdate} would update, ${failed} failed`
+    );
+  } else {
+    console.log(
+      `     ${registered} registered, ${alreadyPresent} already present, ${updated} updated, ${failed} failed`
+    );
+  }
+
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+main().catch((err) => {
+  console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
+  process.exit(1);
+});
