@@ -244,6 +244,8 @@ ssh -i ~/.ssh/id_rsa root@DROPLET_IP ls /opt/github-backups/*.git
 
 ### Clone a mirrored repo for local development
 
+> For full disaster recovery (or to produce a portable bare mirror that survives droplet teardown), use the helper described in [Recovery → Scenario 1](#scenario-1-single-repo-recovery-everyday-case) instead.
+
 ```bash
 # Clone as a normal working copy (checked-out branch):
 git clone root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git ~/my-project
@@ -263,20 +265,78 @@ git clone --mirror root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git myrepo.g
 
 ## Recovery
 
-### Restore a single repo from a mirror
+The droplet mirrors are a read-only sink. Recovery flows are one-way:
+`droplet → local`. There is no automated path to push local changes back
+to the droplet, and no automated path to re-hydrate github.com after a
+loss — both are manual operator actions, scoped to v1 by design.
+
+### Scenario 1: Single-repo recovery (everyday case)
+
+You lost your laptop, want to work offline, or just want a fresh working
+clone of a backed-up repo on a new machine. Use the `restore` helper:
 
 ```bash
-# 1. Pull the bare mirror from the droplet
-git clone --mirror root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git ~/myrepo.git
+npm run restore -- myorg/myrepo ~/myrepo-recovered
+```
 
-# 2. Clone a working copy from the local mirror
-git clone ~/myrepo.git ~/myrepo-recovered
+The helper:
 
-# 3. Point to the original upstream (optional)
+1. Clones the bare mirror from the droplet (via SSH, using `config.json`
+   `sshKeyPath`) into an OS temp directory.
+2. Clones a working copy from that local bare mirror into the target
+   directory you passed.
+3. Leaves the temp bare mirror in place (small, safe to delete, lets you
+   re-clone offline without hitting the droplet again).
+
+The restored working clone's `origin` points at the local bare mirror,
+not at github.com or the droplet. To repoint at github.com for everyday
+work:
+
+```bash
 cd ~/myrepo-recovered
 git remote set-url origin https://github.com/myorg/myrepo.git
 git fetch origin
 ```
+
+### Scenario 2: GitHub is gone / account compromised
+
+The github.com side of your data is unrecoverable (account locked, org
+deleted, a security incident forces a fresh start). You want to push
+your restored mirrors back up to a NEW account or git host. This is a
+manual operator-driven flow — there is no `restore-and-rehydrate`
+automation in v1, by design. For each repo:
+
+1. Restore the bare mirror locally — `npm run restore -- <owner>/<repo>
+   <target>` writes the intermediate bare mirror to `$TMPDIR/github-backup-
+   restore-XXXX/<owner>_<repo>.git`. Pull that path out for the push in
+   step 3 (you do not need the working clone for this scenario).
+2. Create a brand-new empty repo on the destination (github.com under a
+   new account, GitLab, Codeberg, self-hosted, etc.). Do NOT enable any
+   auto-init template — the new repo must be empty.
+3. Push the bare mirror, including all branches and tags:
+   ```bash
+   cd "$TMPDIR/github-backup-restore-XXXX/myorg_myrepo.git"  # the bare mirror, NOT the working clone
+   git push --mirror https://github.com/new-owner/myrepo.git
+   ```
+4. Repeat per repo. If you have many repos, scripting this loop is on
+   you — v1 single-operator scope does not ship a bulk command. Iterate
+   over `ls /opt/github-backups/*.git` on the droplet to enumerate.
+
+**Caveat:** `--mirror` push rewrites every ref on the destination. Only
+use this against a NEW empty repo. Do not run it against a repo someone
+else is also pushing to.
+
+### Verifying restore correctness
+
+`npm run verify:phase-4` runs the helper against the repo named in
+`config.json` `restoreTestRepo` and asserts the restored clone's refs
+match the droplet mirror byte-for-byte (sorted `git for-each-ref` diff).
+Use it as a smoke test after any change to the restore path or the
+droplet mirror layout.
+
+See also: [Clone a mirrored repo for local development](#clone-a-mirrored-repo-for-local-development)
+for the lighter-weight "I just want offline access, not full recovery"
+case (single direct `git clone`, origin pointed at the droplet).
 
 ### Update the cron schedule without re-running full bootstrap
 
