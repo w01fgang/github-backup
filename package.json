@@ -8,7 +8,8 @@
     "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts",
     "smoke-test": "tsx scripts/smoke-test.ts",
     "verify:phase-1": "tsx scripts/verify/phase-1.ts",
-    "restore": "tsx scripts/restore.ts"
+    "restore": "tsx scripts/restore.ts",
+    "verify:phase-4": "tsx scripts/verify/phase-4.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
