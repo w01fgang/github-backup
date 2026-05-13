@@ -89,6 +89,35 @@ https://cli.github.com/packages stable main" \
   echo "  ✓ gh CLI installed: $(gh --version 2>&1 | head -1)"
 fi
 
+# ── Caddy (reverse proxy + Let's Encrypt) ────────────────────────────────
+echo
+if command -v caddy &>/dev/null; then
+  echo "▸ Caddy already installed ($(caddy version 2>&1 | head -1)), skipping repo setup."
+else
+  echo "▸ Installing Caddy from the official apt repository…"
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  chmod go+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+    | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
+
+  echo "  ✓ Caddy installed: $(caddy version 2>&1 | head -1)"
+fi
+
+# ── Node.js (webhook listener runtime; built-in modules only) ────────────
+echo
+if command -v node &>/dev/null; then
+  echo "▸ Node.js already installed ($(node --version)), skipping."
+else
+  echo "▸ Installing Node.js (Ubuntu default repo — listener uses only built-in modules)…"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
+  echo "  ✓ Node.js installed: $(node --version)"
+fi
+
 # ── Backup directory ──────────────────────────────────────────────────────
 echo
 echo "▸ Ensuring backup directory exists: ${BACKUP_DIR}"
@@ -137,6 +166,44 @@ echo "  ✓ Log file ready"
 echo
 echo "▸ Installing backup cron job…"
 "${BACKUP_DIR}/install-cron.sh"
+
+# ── Webhook listener (Phase 3) ────────────────────────────────────────────
+echo
+echo "▸ Installing webhook listener (Phase 3)…"
+
+# Defensive: confirm the three uploaded files are present.
+for f in webhook-listener.js Caddyfile.template github-backup-webhook.service; do
+  if [[ ! -f "${BACKUP_DIR}/${f}" ]]; then
+    echo "ERROR: ${BACKUP_DIR}/${f} not found. Did bootstrap-droplet.ts upload it?" >&2
+    echo "       (See scripts/bootstrap-droplet.ts — the uploader must include non-.sh files for Phase 3.)" >&2
+    exit 1
+  fi
+done
+
+# Validate WEBHOOK_HOSTNAME is set + not the placeholder.
+: "${WEBHOOK_HOSTNAME:?WEBHOOK_HOSTNAME must be set in ${ENV_FILE} (config.json field webhookHostname)}"
+if [[ "${WEBHOOK_HOSTNAME}" == "__WEBHOOK_HOSTNAME__" ]]; then
+  echo "ERROR: WEBHOOK_HOSTNAME equals the template placeholder. Set webhookHostname in config.json." >&2
+  exit 1
+fi
+
+# Substitute hostname into Caddyfile (overwrite OK — droplet-managed).
+echo "  → Writing /etc/caddy/Caddyfile (hostname=${WEBHOOK_HOSTNAME})"
+sed "s|__WEBHOOK_HOSTNAME__|${WEBHOOK_HOSTNAME}|g" \
+  "${BACKUP_DIR}/Caddyfile.template" > /etc/caddy/Caddyfile
+
+# Install systemd unit (overwrite OK — droplet-managed).
+echo "  → Installing /etc/systemd/system/github-backup-webhook.service"
+cp "${BACKUP_DIR}/github-backup-webhook.service" /etc/systemd/system/github-backup-webhook.service
+
+# Reload + enable + start (idempotent).
+systemctl daemon-reload
+systemctl enable --now github-backup-webhook
+echo "  ✓ github-backup-webhook.service: $(systemctl is-active github-backup-webhook)"
+
+# Reload Caddy (graceful — picks up the new Caddyfile).
+systemctl reload caddy || systemctl restart caddy
+echo "  ✓ caddy reloaded with new Caddyfile"
 
 echo
 echo "══════════════════════════════════════════════════════════"
