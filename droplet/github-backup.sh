@@ -58,6 +58,15 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/github-backups}"
 LOG_FILE="${LOG_FILE:-/var/log/github-backup.log}"
 ENV_FILE="${BACKUP_DIR}/backup.env"
 
+# ── Run-state instrumentation (Phase 2 D-03/D-05) ──────────────────────────
+# STATE_DIR is created by bootstrap.sh with mode 700. last-run.json is the
+# canonical "did the last run succeed?" surface read by github-backup-status.sh
+# and `npm run status`. Schema and atomic-write contract locked in
+# .planning/phases/02-monitoring/02-01-PLAN.md.
+STATE_DIR="${STATE_DIR:-/var/lib/github-backup}"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPOS_JSON_ROWS=()
+
 # ── Load configuration ─────────────────────────────────────────────────────
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "ERROR: ${ENV_FILE} not found. Run bootstrap.sh first." >&2
@@ -136,19 +145,35 @@ fi
 TOTAL="${#REPOS[@]}"
 log "Found ${TOTAL} $([ "${TOTAL}" -eq 1 ] && echo 'repository' || echo 'repositories')."
 
+# Counters initialised before the TOTAL=0 short-circuit so the last-run.json
+# writer below can reference them unconditionally under `set -u`.
+SUCCESS=0
+FAIL=0
+
 if [[ "${TOTAL}" -eq 0 ]]; then
-  log "Nothing to back up. Exiting."
-  exit 0
+  log "Nothing to back up."
+  # Fall through to last-run.json writer — every run MUST emit a state file,
+  # including the zero-repo case (operator's "did anything happen?" check).
 fi
 
 # ── Mirror each repository ────────────────────────────────────────────────
-SUCCESS=0
-FAIL=0
 
 for REPO_FULL in "${REPOS[@]}"; do
   # REPO_FULL format: "owner/repo-name"
   OWNER="${REPO_FULL%%/*}"
   NAME="${REPO_FULL##*/}"
+
+  # Predict per-repo action by mirror-path existence BEFORE invoking the
+  # helper. sync-one-repo.sh mirrors to ${BACKUP_DIR}/${OWNER}_${REPO}.git
+  # (sync-one-repo.sh:83). On non-zero exit we override ROW_ACTION to "fail"
+  # below. Per D-12 the schema enum is clone | update | fail (no "skipped").
+  if [[ -d "${BACKUP_DIR}/${OWNER}_${NAME}.git" ]]; then
+    ROW_ACTION="update"
+  else
+    ROW_ACTION="clone"
+  fi
+
+  REPO_T0="${EPOCHREALTIME}"
 
   # Per-repo work (clone or update + per-repo lock + per-repo result line)
   # is delegated to sync-one-repo.sh — same handler the webhook listener calls
@@ -160,8 +185,12 @@ for REPO_FULL in "${REPOS[@]}"; do
   if "${BACKUP_DIR}/sync-one-repo.sh" "${GITHUB_USER_OR_ORG}" "${OWNER}" "${NAME}"; then
     (( SUCCESS++ ))
   else
+    ROW_ACTION="fail"
     (( FAIL++ ))
   fi
+
+  REPO_DUR_MS=$(awk -v t0="$REPO_T0" -v t1="${EPOCHREALTIME}" 'BEGIN { printf "%d", (t1 - t0) * 1000 }')
+  REPOS_JSON_ROWS+=( "$(jq -n --arg name "${REPO_FULL}" --arg action "${ROW_ACTION}" --argjson duration_ms "${REPO_DUR_MS}" '{name:$name, action:$action, duration_ms:$duration_ms}')" )
 done
 
 # ── Summary ───────────────────────────────────────────────────────────────
@@ -170,6 +199,37 @@ log "Backup finished — success: ${SUCCESS}, failed: ${FAIL}"
 log "════════════════════════════════════════════════════════"
 
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
+
+# ── Atomic last-run.json writer (Phase 2 D-03) ─────────────────────────────
+# Every run emits /var/lib/github-backup/last-run.json with the locked schema
+# (see .planning/phases/02-monitoring/02-01-PLAN.md <schema>). Atomic write
+# via temp + rename on the same filesystem prevents readers from seeing a
+# half-written file. The TOTAL=0 path lands here too — empty repos[] array,
+# success=0 fail=0, exit_code=0.
+FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [[ "${FAIL}" -gt 0 ]]; then EXIT_CODE=1; else EXIT_CODE=0; fi
+
+if [[ "${#REPOS_JSON_ROWS[@]}" -gt 0 ]]; then
+  REPOS_JSON="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '.')"
+else
+  REPOS_JSON="[]"
+fi
+
+mkdir -p "${STATE_DIR}"
+TMP_FILE="${STATE_DIR}/last-run.json.tmp"
+jq -n \
+  --arg started "${STARTED_AT}" \
+  --arg finished "${FINISHED_AT}" \
+  --argjson exit "${EXIT_CODE}" \
+  --argjson total "${TOTAL}" \
+  --argjson ok "${SUCCESS}" \
+  --argjson failed "${FAIL}" \
+  --argjson repos "${REPOS_JSON}" \
+  '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos}' \
+  > "${TMP_FILE}"
+mv -f "${TMP_FILE}" "${STATE_DIR}/last-run.json"
+chmod 640 "${STATE_DIR}/last-run.json"
+log "Wrote ${STATE_DIR}/last-run.json (exit=${EXIT_CODE})"
 
 if [[ "${FAIL}" -gt 0 ]]; then
   exit 1
