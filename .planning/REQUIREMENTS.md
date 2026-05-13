@@ -12,6 +12,7 @@
 - [ ] **BACKUP-01**: Cron sweep mirrors all repos from configured sources on schedule (safety net for missed webhooks, deletes, idle repos)
 - [ ] **BACKUP-02**: New repos cloned with `git clone --mirror`; known repos refreshed with `git remote update`
 - [ ] **BACKUP-03**: `GITHUB_TOKEN` and webhook shared secret stored on droplet at `/opt/github-backups/backup.env`, mode 600
+- [ ] **REPOS-01**: Config supports per-source repo allow-list and deny-list (glob patterns); empty allow-list = all repos of source; deny wins on conflict
 
 ### Webhook
 
@@ -43,8 +44,9 @@
 
 ### Testing
 
-- [ ] **TEST-01**: End-to-end smoke test (provision → bootstrap → cron-trigger backup → webhook-trigger backup → restore) runnable on demand
+- [ ] **TEST-01**: Cron-path smoke test (provision → bootstrap → cron-trigger backup → restore) runnable on demand
 - [ ] **TEST-02**: Each phase has an executable verification step beyond visual inspection
+- [ ] **TEST-03**: Webhook-path smoke test (register webhook on test repo → push commit → observe mirror update within 30 seconds)
 
 ## v2 (deferred)
 
@@ -71,9 +73,9 @@
 | PROV-01, PROV-02 | Phase 1 |
 | BACKUP-01, BACKUP-02, BACKUP-03 | Phase 1 |
 | ACCESS-01 | Phase 1 |
-| TEST-01 (initial), TEST-02 | Phase 1 |
+| TEST-01, TEST-02 | Phase 1 |
 | MON-01, MON-02, MON-03 | Phase 2 |
-| RESTORE-01, RESTORE-02 | Phase 3 |
-| TEARDOWN-01 | Phase 4 |
-| MULTI-01 | Phase 5 |
-| WEBHOOK-01, WEBHOOK-02 | Phase 6 |
+| WEBHOOK-01, WEBHOOK-02, TEST-03 | Phase 3 |
+| RESTORE-01, RESTORE-02 | Phase 4 |
+| TEARDOWN-01 | Phase 5 |
+| MULTI-01, REPOS-01 | Phase 6 |

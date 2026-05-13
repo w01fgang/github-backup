@@ -99,9 +99,9 @@
 **Note**: Mostly documentation + verification. Standard `git clone` over SSH already works (ACCESS-01).
 
 **Plans:** 3 plans
-- [ ] 04-01-restore-helper-PLAN.md — Add `scripts/restore.ts` (`npm run restore -- <owner>/<repo> <target>`), `restoreTestRepo` field on Config, package.json wiring
-- [ ] 04-02-verify-script-PLAN.md — Implement `scripts/verify/phase-4.ts` (D-02 ref-equivalence via sorted `for-each-ref` bare-vs-bare diff; D-03 drops self-push)
-- [ ] 04-03-readme-docs-PLAN.md — Rewrite README §Recovery with two scenarios (D-07); cross-link with §Clone-a-mirrored-repo
+- [x] 04-01-restore-helper-PLAN.md — Add `scripts/restore.ts` (`npm run restore -- <owner>/<repo> <target>`), `restoreTestRepo` field on Config, package.json wiring
+- [x] 04-02-verify-script-PLAN.md — Implement `scripts/verify/phase-4.ts` (D-02 ref-equivalence via sorted `for-each-ref` bare-vs-bare diff; D-03 drops self-push)
+- [x] 04-03-readme-docs-PLAN.md — Rewrite README §Recovery with two scenarios (D-07); cross-link with §Clone-a-mirrored-repo
 
 > Plan files live in `.planning/phases/04-restore/`. CONTEXT.md inside that dir is the canonical Phase 4 context — its "Phase 3" header text predates the 2026-05-11 ROADMAP reorder; decisions remain valid.
 

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: phase-1-executed-unverified
-last_updated: "2026-05-12T00:00:00Z"
+status: ready_to_plan
+last_updated: "2026-05-13T03:26:03.941Z"
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 12
+  completed_phases: 2
+  total_plans: 19
   completed_plans: 3
-  percent: 25
+  percent: 33
 ---
 
 # State
@@ -21,7 +21,8 @@ progress:
 
 ## Current Position
 
-Phase: 01 (verify-pipeline) — code shipped, end-to-end smoke not yet run against real DO + GitHub.
+Phase: 05
+Plan: Not started
 
 - Milestone: v1
 - Phase: 1 (Verify pipeline) — 3 plans coded; NR-01..09 fixes applied from review iter3
@@ -47,6 +48,7 @@ Inner CONTEXT/DISCUSSION files renumbered in lock-step (e.g. `06-CONTEXT.md` →
 (See PROJECT.md → Key Decisions, `.planning/phases/01-verify-pipeline/01-CONTEXT.md`, `.planning/phases/02-monitoring/02-CONTEXT.md`)
 
 Recent additions (2026-05-11):
+
 - Webhook TLS via Caddy + Let's Encrypt; operator provides DNS A record before bootstrap
 - Per-repo allow/deny globs (REPOS-01) added to Phase 6
 - Root SSH accepted for v1; non-root deferred to v2
