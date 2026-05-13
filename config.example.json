@@ -1,5 +1,5 @@
 {
-  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable.",
+  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable. restoreTestRepo is OPTIONAL — only consumed by `npm run verify:phase-4`; safe to leave as the placeholder until you want to verify restore correctness.",
 
   "region": "nyc3",
   "size": "s-1vcpu-1gb",
@@ -19,5 +19,7 @@
 
   "allowedSSHCidr": "YOUR_PUBLIC_IP/32",
 
-  "tags": ["github-backup"]
+  "tags": ["github-backup"],
+
+  "restoreTestRepo": "your-owner/your-test-repo"
 }

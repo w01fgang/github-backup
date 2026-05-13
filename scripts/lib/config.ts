@@ -23,6 +23,7 @@ export interface Config {
   cronSchedule: string;
   allowedSSHCidr: string;
   tags?: string[];
+  restoreTestRepo?: string;
 }
 
 export interface DropletInfo {
@@ -92,6 +93,15 @@ const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
  */
 const CRON_SAFE_RE = /^[A-Za-z0-9@*,/#? \t-]+$/;
 
+/**
+ * Restore test repo slug shape: `<owner>/<repo>`. Optional field consumed by
+ * scripts/verify/phase-4.ts and (indirectly, via slug validation) by
+ * scripts/restore.ts. Value is interpolated into a shell-quoted `git clone`
+ * argument inside restore.ts, so defend in depth here even though the helper
+ * re-validates the slug shape on its own.
+ */
+const RESTORE_TEST_REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
 export function loadConfig(): Config {
   const p = path.resolve(process.cwd(), "config.json");
   if (!fs.existsSync(p)) {
@@ -132,6 +142,22 @@ export function loadConfig(): Config {
           cfg.cronSchedule
         )}`
     );
+  }
+  // restoreTestRepo is optional, consumed by scripts/verify/phase-4.ts and
+  // (via slug validation) by scripts/restore.ts. Defence in depth: even though
+  // the helper re-validates the slug, a malformed value here would otherwise
+  // pass straight through to a shell-interpolated `git clone` argument.
+  if (cfg.restoreTestRepo !== undefined) {
+    if (
+      typeof cfg.restoreTestRepo !== "string" ||
+      !RESTORE_TEST_REPO_RE.test(cfg.restoreTestRepo)
+    ) {
+      bail(
+        `config.json field "restoreTestRepo" must be "<owner>/<repo>" ` +
+          `using [A-Za-z0-9._-]; refusing to interpolate into git clone. ` +
+          `Got: ${JSON.stringify(cfg.restoreTestRepo)}`
+      );
+    }
   }
   return cfg;
 }
