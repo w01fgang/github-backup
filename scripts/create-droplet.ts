@@ -142,17 +142,74 @@ function findOrCreateFirewall(cfg: Config): string {
   const existing = all.find((fw) => fw.name === cfg.firewallName);
   if (existing) {
     console.log(
-      `   Already exists — ID: ${existing.id}. Skipping creation.`
+      `   Already exists — ID: ${existing.id}. Reconciling inbound rules…`
     );
+    // D-23: the firewall must carry SSH/22 (from cfg.allowedSSHCidr) plus
+    // HTTP/80 + HTTPS/443 (from 0.0.0.0/0,::/0) for the Phase 3 webhook
+    // listener. The CREATE branch below installs all three; this branch
+    // brings an older Phase 1 firewall up to spec without churning the
+    // droplet (D-24). PROV-01 idempotency: a firewall already carrying all
+    // three rules produces ZERO add-rules calls.
+    const expected: Array<{
+      protocol: "tcp";
+      ports: string;
+      sources: string;
+    }> = [
+      { protocol: "tcp", ports: "22", sources: cfg.allowedSSHCidr },
+      { protocol: "tcp", ports: "80", sources: "0.0.0.0/0,::/0" },
+      { protocol: "tcp", ports: "443", sources: "0.0.0.0/0,::/0" },
+    ];
+    interface InboundRule {
+      protocol: string;
+      ports: string;
+      sources?: { addresses?: string[] };
+    }
+    interface FirewallDetail extends FirewallRecord {
+      inbound_rules?: InboundRule[];
+    }
+    const detail = first<FirewallDetail>(
+      `doctl compute firewall get ${existing.id} --output json`
+    );
+    const present = detail.inbound_rules ?? [];
+    for (const r of expected) {
+      const expectedSources = new Set(r.sources.split(","));
+      const match = present.find((p) => {
+        const addrs = p.sources?.addresses ?? [];
+        if (
+          p.protocol !== r.protocol ||
+          p.ports !== r.ports ||
+          addrs.length !== expectedSources.size
+        ) {
+          return false;
+        }
+        return addrs.every((a) => expectedSources.has(a));
+      });
+      if (match) {
+        console.log(
+          `   ✓ Rule already present: ${r.protocol}/${r.ports} from ${r.sources}`
+        );
+      } else {
+        console.log(
+          `   + Adding rule: ${r.protocol}/${r.ports} from ${r.sources}`
+        );
+        runCapture(
+          `doctl compute firewall add-rules ${existing.id} ` +
+            `--inbound-rules "protocol:${r.protocol},ports:${r.ports},sources:addresses:${r.sources}"`
+        );
+      }
+    }
     return existing.id;
   }
 
-  // Inbound: SSH (22/tcp) from the configured CIDR only.
+  // Inbound: SSH (22/tcp) from the configured CIDR, plus HTTP (80) and
+  // HTTPS (443) from 0.0.0.0/0,::/0 for the webhook listener / Caddy ACME.
   // Outbound: all TCP, UDP, ICMP allowed (needed for apt, DNS, HTTPS git clones).
   const createCmd = [
     `doctl compute firewall create`,
     `--name "${cfg.firewallName}"`,
     `--inbound-rules "protocol:tcp,ports:22,sources:addresses:${cfg.allowedSSHCidr}"`,
+    `--inbound-rules "protocol:tcp,ports:80,sources:addresses:0.0.0.0/0,::/0"`,
+    `--inbound-rules "protocol:tcp,ports:443,sources:addresses:0.0.0.0/0,::/0"`,
     `--outbound-rules "protocol:tcp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
     `--outbound-rules "protocol:udp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
     `--outbound-rules "protocol:icmp,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
