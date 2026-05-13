@@ -24,6 +24,8 @@ export interface Config {
   allowedSSHCidr: string;
   tags?: string[];
   restoreTestRepo?: string;
+  webhookHostname: string;      // FQDN that operator pointed at droplet IP (D-04)
+  webhookTestRepo?: string;     // "owner/repo" — consumed only by verify:phase-3 (D-25)
 }
 
 export interface DropletInfo {
@@ -57,6 +59,7 @@ const REQUIRED_FIELDS: (keyof Config)[] = [
   "backupDir",
   "cronSchedule",
   "allowedSSHCidr",
+  "webhookHostname",
 ];
 
 /**
@@ -72,6 +75,7 @@ const SHELL_SAFE_FIELDS: (keyof Config)[] = [
   "sshKeyPath",
   "githubUserOrOrg",
   "backupDir",
+  "webhookHostname",
 ];
 const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
 
@@ -156,6 +160,34 @@ export function loadConfig(): Config {
         `config.json field "restoreTestRepo" must be "<owner>/<repo>" ` +
           `using [A-Za-z0-9._-]; refusing to interpolate into git clone. ` +
           `Got: ${JSON.stringify(cfg.restoreTestRepo)}`
+      );
+    }
+  }
+  // D-04: webhookHostname is required and must be a lowercase FQDN. Caddy
+  // configures HTTPS for this name via Let's Encrypt; a malformed value would
+  // either bail at Caddy startup (operator-hostile) or silently issue against
+  // the wrong name. Trailing dots, underscores, IP addresses, and uppercase are
+  // all rejected here so the failure is local + actionable.
+  const FQDN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+  if (!FQDN_RE.test(cfg.webhookHostname)) {
+    bail(
+      `config.json field "webhookHostname" is not a valid FQDN ` +
+        `(lowercase letters, digits, dashes; at least one dot; no trailing dot). ` +
+        `Got: ${JSON.stringify(cfg.webhookHostname)}`
+    );
+  }
+  // D-25 group 4: webhookTestRepo is optional, consumed by verify:phase-3.
+  // Same shape constraint as restoreTestRepo so a malformed value can't reach
+  // a shell-interpolated `gh api` call inside the verify runner.
+  if (cfg.webhookTestRepo !== undefined) {
+    if (
+      typeof cfg.webhookTestRepo !== "string" ||
+      !RESTORE_TEST_REPO_RE.test(cfg.webhookTestRepo)
+    ) {
+      bail(
+        `config.json field "webhookTestRepo" must be "<owner>/<repo>" ` +
+          `using [A-Za-z0-9._-]. ` +
+          `Got: ${JSON.stringify(cfg.webhookTestRepo)}`
       );
     }
   }
