@@ -76,10 +76,10 @@
 **Decision**: Caddy + Let's Encrypt over nginx/manual or plain-HTTP-HMAC. Caddy auto-handles cert lifecycle; LE is free; GitHub requires/prefers valid TLS. Operator burden: one DNS record.
 
 **Plans:** 4 plans
-- [ ] 03-01-sync-handler-PLAN.md — Extract `droplet/sync-one-repo.sh` from `github-backup.sh`; per-repo lock under global cron lock; new `BACKUP_REPO_RESULT` log line.
-- [ ] 03-02-listener-PLAN.md — `droplet/webhook-listener.js` (vanilla Node, zero deps), `Caddyfile.template`, `github-backup-webhook.service`, bootstrap.sh idempotent install.
-- [ ] 03-03-operator-scaffolding-PLAN.md — `scripts/lib/config.ts` adds `webhookHostname`+`webhookTestRepo`; firewall 80+443; `bootstrap-droplet` generates+preserves `WEBHOOK_SECRET`, uploads non-`.sh` files, `--rotate-webhook-secret`; new `scripts/register-webhooks.ts`.
-- [ ] 03-04-verify-readme-PLAN.md — `scripts/verify/phase-3.ts` (6 assertion groups), README `## Webhook setup` section, `verify:phase-3` npm script.
+- [x] 03-01-sync-handler-PLAN.md — Extract `droplet/sync-one-repo.sh` from `github-backup.sh`; per-repo lock under global cron lock; new `BACKUP_REPO_RESULT` log line.
+- [x] 03-02-listener-PLAN.md — `droplet/webhook-listener.js` (vanilla Node, zero deps), `Caddyfile.template`, `github-backup-webhook.service`, bootstrap.sh idempotent install.
+- [x] 03-03-operator-scaffolding-PLAN.md — `scripts/lib/config.ts` adds `webhookHostname`+`webhookTestRepo`; firewall 80+443; `bootstrap-droplet` generates+preserves `WEBHOOK_SECRET`, uploads non-`.sh` files, `--rotate-webhook-secret`; new `scripts/register-webhooks.ts`.
+- [x] 03-04-verify-readme-PLAN.md — `scripts/verify/phase-3.ts` (6 assertion groups), README `## Webhook setup` section, `verify:phase-3` npm script.
 
 ---
 
