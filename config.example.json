@@ -1,5 +1,5 @@
 {
-  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable. restoreTestRepo is OPTIONAL — only consumed by `npm run verify:phase-4`; safe to leave as the placeholder until you want to verify restore correctness.",
+  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable. restoreTestRepo is OPTIONAL — only consumed by `npm run verify:phase-4`; safe to leave as the placeholder until you want to verify restore correctness. webhookHostname is REQUIRED — operator must point an A record at the droplet IP before `npm run bootstrap-droplet`. webhookTestRepo is OPTIONAL — only consumed by `npm run verify:phase-3`.",
 
   "region": "nyc3",
   "size": "s-1vcpu-1gb",
@@ -21,5 +21,8 @@
 
   "tags": ["github-backup"],
 
-  "restoreTestRepo": "your-owner/your-test-repo"
+  "restoreTestRepo": "your-owner/your-test-repo",
+
+  "webhookHostname": "backup.example.com",
+  "webhookTestRepo": "your-owner/your-test-repo"
 }
