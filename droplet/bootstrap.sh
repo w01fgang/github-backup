@@ -100,6 +100,7 @@ chmod 700 "${BACKUP_DIR}"
 echo "▸ Setting script permissions…"
 chmod +x "${BACKUP_DIR}/github-backup.sh"
 chmod +x "${BACKUP_DIR}/install-cron.sh"
+chmod +x "${BACKUP_DIR}/sync-one-repo.sh"
 echo "  ✓ Scripts are executable"
 
 # ── GitHub CLI authentication ─────────────────────────────────────────────
