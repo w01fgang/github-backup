@@ -125,6 +125,13 @@ mkdir -p "${BACKUP_DIR}"
 # Owner-only access — this directory will hold mirror repos and the env file
 chmod 700 "${BACKUP_DIR}"
 
+# ── State directory for run summaries (read by github-backup-status.sh / npm run status) ─
+STATE_DIR="/var/lib/github-backup"
+echo "▸ Ensuring state directory exists: ${STATE_DIR}"
+mkdir -p "${STATE_DIR}"
+chmod 700 "${STATE_DIR}"
+echo "  ✓ State directory ready (mode 700, root)"
+
 # ── Mark scripts executable ───────────────────────────────────────────────
 echo "▸ Setting script permissions…"
 chmod +x "${BACKUP_DIR}/github-backup.sh"
