@@ -1,0 +1,17 @@
+[Unit]
+Description=GitHub backup webhook listener
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/github-backups/webhook-listener.js
+EnvironmentFile=/opt/github-backups/backup.env
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+User=root
+
+[Install]
+WantedBy=multi-user.target
