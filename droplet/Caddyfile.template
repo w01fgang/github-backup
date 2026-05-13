@@ -1,0 +1,7 @@
+# /etc/caddy/Caddyfile — github-backup webhook listener
+# Templated from droplet/Caddyfile.template by droplet/bootstrap.sh.
+# Hostname placeholder is substituted at bootstrap time from cfg.webhookHostname.
+
+__WEBHOOK_HOSTNAME__ {
+	reverse_proxy /webhook/github 127.0.0.1:9100
+}
