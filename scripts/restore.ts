@@ -52,6 +52,22 @@ if (!SLUG_RE.test(slug)) {
 }
 const [owner, repo] = slug.split("/");
 
+// rawTarget is interpolated (after path.resolve) into a double-quoted
+// `git clone "${localMirrorPath}" "${workingClonePath}"` argument that
+// runs through execSync. Double quotes prevent word-splitting but NOT
+// command substitution ($(…) or backticks). Restrict the target path to
+// an allow-list of chars before resolving, matching the SHELL_SAFE_RE
+// posture from lib/config.ts. Allow `~` for home expansion and `/` for
+// path separators; reject anything that could trigger shell expansion.
+const TARGET_PATH_SAFE_RE = /^[A-Za-z0-9._/~@:+,= -]+$/;
+if (!TARGET_PATH_SAFE_RE.test(rawTarget)) {
+  bail(
+    `Target path "${rawTarget}" contains characters outside ` +
+      `[A-Za-z0-9._/~@:+,= -]; refusing to interpolate into git clone. ` +
+      `Pick a path made of normal filename characters.`
+  );
+}
+
 // --- config + droplet ------------------------------------------------------
 const cfg = loadConfig();
 const info = loadDropletInfo();
