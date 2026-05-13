@@ -263,6 +263,88 @@ git clone --mirror root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git myrepo.g
 
 ---
 
+## Webhook setup
+
+The webhook listener delivers near-instant `git remote update` per pushed
+repo. The nightly cron sweep stays as a safety net for missed deliveries,
+deleted repos, and idle repos that never push.
+
+### Prerequisites
+
+- Operator owns a domain (e.g. `backup.example.com`).
+- BEFORE `npm run bootstrap-droplet`: point an A record at the droplet's
+  public IP. Caddy needs the DNS record live for the Let's Encrypt ACME
+  HTTP-01 challenge to succeed. Bootstrap does not validate DNS — the first
+  webhook attempt fails loud if the cert was never issued.
+
+### Config additions
+
+In `config.json`:
+
+```json
+{
+  "webhookHostname": "backup.example.com",
+  "webhookTestRepo": "your-owner/your-test-repo"
+}
+```
+
+- `webhookHostname` (REQUIRED): the FQDN you pointed at the droplet IP.
+- `webhookTestRepo` (OPTIONAL, `<owner>/<repo>`): consumed only by
+  `npm run verify:phase-3` group 4 (end-to-end push). Unset = group 4
+  skipped without failing the run.
+
+### First-time setup
+
+```bash
+# 1. Provision droplet + firewall (opens TCP/22, 80, 443).
+npm run create-droplet
+
+# 2. Bootstrap the droplet — installs Caddy, Node, cron, systemd unit;
+#    generates WEBHOOK_SECRET and echoes it to stdout exactly once
+#    (record it now — preserved across re-runs but never re-echoed).
+GITHUB_TOKEN=ghp_… npm run bootstrap-droplet
+
+# 3. Register webhooks on every repo of cfg.githubUserOrOrg.
+#    Reads WEBHOOK_SECRET from the droplet over SSH each time — no local
+#    secret cache that can drift after rotation.
+npm run register-webhooks
+
+# 4. Verify the full plane end-to-end.
+npm run verify:phase-3
+```
+
+### Secret rotation
+
+```bash
+GITHUB_TOKEN=ghp_… npm run bootstrap-droplet -- --rotate-webhook-secret
+npm run register-webhooks -- --update
+```
+
+The first command regenerates `WEBHOOK_SECRET` on the droplet and echoes
+the new value; the second PATCHes every existing GitHub webhook with the
+new secret. Skipping step 2 means GitHub keeps signing with the OLD secret
+and the listener rejects every event with 401.
+
+### Live tail
+
+```bash
+ssh root@<droplet-ip> journalctl -u github-backup-webhook -f
+```
+
+The listener logs to the systemd journal — no separate log file. The
+cron-driven backup still writes to `/var/log/github-backup.log`.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `verify:phase-3` Group 1 LE-cert assertion fails | DNS not pointed at droplet OR port 80 blocked OR Caddy never tried (no incoming request triggered ACME) | `dig A <webhookHostname>` must show droplet IP. `curl -v http://<webhookHostname>/` from anywhere triggers Caddy's first ACME attempt. `journalctl -u caddy --since 5m` shows the ACME error. |
+| Webhook deliveries show 401 in GitHub Settings → Webhooks → Recent Deliveries | Secret mismatch between GitHub and droplet | Run `npm run register-webhooks -- --update` after any `--rotate-webhook-secret`. |
+| Webhook fires but mirror does not update | `sync-one-repo.sh` exited non-zero (network, git error) | `grep BACKUP_REPO_RESULT /var/log/github-backup.log \| tail` — look for `action=fail`. Then `journalctl -u github-backup-webhook -n 50`. |
+| Some repos sync via cron only, never via webhook | Webhook not registered on those repos | `gh api repos/<owner>/<repo>/hooks` should show one entry with `config.url` matching `webhookHostname`. Re-run `npm run register-webhooks`. |
+
+---
+
 ## Recovery
 
 The droplet mirrors are a read-only sink. Recovery flows are one-way:

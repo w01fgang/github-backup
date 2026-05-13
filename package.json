@@ -10,7 +10,8 @@
     "verify:phase-1": "tsx scripts/verify/phase-1.ts",
     "restore": "tsx scripts/restore.ts",
     "verify:phase-4": "tsx scripts/verify/phase-4.ts",
-    "register-webhooks": "tsx scripts/register-webhooks.ts"
+    "register-webhooks": "tsx scripts/register-webhooks.ts",
+    "verify:phase-3": "tsx scripts/verify/phase-3.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
