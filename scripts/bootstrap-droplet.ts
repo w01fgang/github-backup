@@ -21,8 +21,9 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as crypto from "crypto";
 import { Config, bail, loadConfig, loadDropletInfo } from "./lib/config";
-import { scpFile, sshRun, waitForSsh } from "./lib/ssh";
+import { scpFile, sshFlags, sshRun, runCapture, waitForSsh } from "./lib/ssh";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // backup.env generator
@@ -40,14 +41,28 @@ import { scpFile, sshRun, waitForSsh } from "./lib/ssh";
  * any `$`, `"`, `\``, newline, or whitespace in the token would corrupt
  * the env or inject shell. GitHub PATs today are alnum + underscore;
  * bail loudly on anything else.
+ *
+ * Phase 3 additions: WEBHOOK_SECRET (64-hex) and WEBHOOK_HOSTNAME (FQDN)
+ * are appended. Both shapes are validated here as a second line of defence;
+ * loadConfig already enforces the FQDN, and resolveWebhookSecret guarantees
+ * the 64-hex secret shape.
  */
-function writeBackupEnv(cfg: Config, githubToken: string): string {
+function writeBackupEnv(
+  cfg: Config,
+  githubToken: string,
+  webhookSecret: string
+): string {
   if (!/^[A-Za-z0-9_]+$/.test(githubToken)) {
     bail(
       "GITHUB_TOKEN contains characters outside [A-Za-z0-9_] after trim.\n" +
         `    Length=${githubToken.length}. Refusing to write it to backup.env\n` +
         "    unquoted (would corrupt the env file or inject shell on the\n" +
         "    droplet). Confirm the token shape, then re-run."
+    );
+  }
+  if (!/^[a-f0-9]{64}$/.test(webhookSecret)) {
+    bail(
+      `WEBHOOK_SECRET shape rejected (expected 64 hex chars, got len=${webhookSecret.length}).`
     );
   }
 
@@ -59,12 +74,81 @@ function writeBackupEnv(cfg: Config, githubToken: string): string {
     `BACKUP_DIR=${cfg.backupDir}`,
     // Wrap schedule in quotes so it survives `source backup.env` correctly
     `CRON_SCHEDULE="${cfg.cronSchedule}"`,
+    // Phase 3 — webhook listener env (D-07, D-19). Both values are shell-safe
+    // by their validated shapes (64-hex and FQDN) so no quoting is needed.
+    `WEBHOOK_SECRET=${webhookSecret}`,
+    `WEBHOOK_HOSTNAME=${cfg.webhookHostname}`,
   ];
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-backup-"));
   const envPath = path.join(tmpDir, "backup.env");
   fs.writeFileSync(envPath, lines.join("\n") + "\n", { mode: 0o600 });
   return envPath;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Webhook secret resolution (Phase 3 / D-07, D-09)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ResolveSecretArgs {
+  rotate: boolean;
+  sshUser: string;
+  sshKeyPath: string;
+  dropletIp: string;
+}
+
+/**
+ * Determine the WEBHOOK_SECRET to write into the new backup.env.
+ *
+ * Default (rotate=false):
+ *   1. SSH to droplet, grep WEBHOOK_SECRET= from /opt/github-backups/backup.env.
+ *   2. If a well-shaped 64-hex value is found, preserve it. No stdout echo.
+ *   3. If missing or malformed, generate fresh + echo to operator once.
+ *
+ * --rotate-webhook-secret:
+ *   Always regenerate fresh + echo + print re-register reminder.
+ *
+ * The secret lives only on the droplet; this helper neither caches nor
+ * persists it locally beyond the in-process call to writeBackupEnv.
+ */
+function resolveWebhookSecret(args: ResolveSecretArgs): string {
+  if (args.rotate) {
+    const fresh = crypto.randomBytes(32).toString("hex");
+    console.log(`\n🔁  --rotate-webhook-secret: regenerating WEBHOOK_SECRET`);
+    console.log(`\n   NEW WEBHOOK SECRET (record this — needed for register-webhooks --update):`);
+    console.log(`     ${fresh}`);
+    console.log(
+      `\n   Reminder: run \`npm run register-webhooks -- --update\` to push the new secret to GitHub.\n`
+    );
+    return fresh;
+  }
+  // Read existing remote backup.env (if any) for the current secret.
+  const cmd =
+    `ssh ${sshFlags(args.sshKeyPath)} ${args.sshUser}@${args.dropletIp} ` +
+    `'grep ^WEBHOOK_SECRET= /opt/github-backups/backup.env 2>/dev/null || true'`;
+  let existing = "";
+  try {
+    existing = runCapture(cmd);
+  } catch {
+    existing = "";
+  }
+  if (existing.startsWith("WEBHOOK_SECRET=")) {
+    const val = existing.slice("WEBHOOK_SECRET=".length).trim();
+    if (/^[a-f0-9]{64}$/.test(val)) {
+      console.log(
+        `\n🔐  Preserving existing WEBHOOK_SECRET from droplet's backup.env`
+      );
+      return val;
+    }
+    console.log(
+      `\n⚠️   Remote WEBHOOK_SECRET present but malformed (length=${val.length}); regenerating.`
+    );
+  }
+  const fresh = crypto.randomBytes(32).toString("hex");
+  console.log(`\n🆕  Generating fresh WEBHOOK_SECRET (first-run or missing-on-droplet)`);
+  console.log(`\n   WEBHOOK SECRET (record this — needed for register-webhooks):`);
+  console.log(`     ${fresh}\n`);
+  return fresh;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +170,8 @@ async function main(): Promise<void> {
     );
   }
 
+  const rotateWebhook = process.argv.includes("--rotate-webhook-secret");
+
   const cfg = loadConfig();
   const droplet = loadDropletInfo();
   const { ip, name } = droplet;
@@ -95,8 +181,20 @@ async function main(): Promise<void> {
 
   await waitForSsh(ip, user, keyPath);
 
+  // ── Resolve webhook secret (preserve on re-bootstrap, opt-in rotation) ──
+  // D-07/D-09: default path reads the existing WEBHOOK_SECRET over SSH and
+  // preserves it (so registered GitHub webhooks keep working across re-runs).
+  // --rotate-webhook-secret generates a fresh value, echoes it once, and
+  // reminds the operator to re-push to GitHub via register-webhooks --update.
+  const webhookSecret = resolveWebhookSecret({
+    rotate: rotateWebhook,
+    sshUser: user,
+    sshKeyPath: keyPath,
+    dropletIp: ip,
+  });
+
   console.log(`\n📝  Generating backup.env…`);
-  const envPath = writeBackupEnv(cfg, githubToken);
+  const envPath = writeBackupEnv(cfg, githubToken, webhookSecret);
 
   try {
     console.log(`\n📁  Creating remote directory: ${backupDir}`);
@@ -111,9 +209,16 @@ async function main(): Promise<void> {
       bail("droplet/ directory not found in the project root.");
     }
 
+    // Phase 3 (D-19): the webhook plane needs three non-.sh files uploaded
+    // alongside the existing shell scripts. Expand the suffix allow-list
+    // (was: .sh only) — droplet/bootstrap.sh defensively bails if any of
+    // webhook-listener.js, Caddyfile.template, github-backup-webhook.service
+    // is missing.
     const scriptFiles = fs
       .readdirSync(dropletDir, { withFileTypes: true })
-      .filter((d) => d.isFile() && d.name.endsWith(".sh"))
+      .filter(
+        (d) => d.isFile() && /\.(sh|js|template|service)$/.test(d.name)
+      )
       .map((d) => path.join(dropletDir, d.name));
 
     for (const file of scriptFiles) {
