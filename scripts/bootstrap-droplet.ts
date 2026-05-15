@@ -9,13 +9,15 @@
  * Usage:
  *   GITHUB_TOKEN=<your_pat> npm run bootstrap-droplet
  *
- * The script is fully idempotent — running it again will overwrite scripts
- * and re-run bootstrap.sh, which is itself idempotent.
+ * Re-run safety (Phase 5 / TEARDOWN-01): on a droplet that has already
+ * been bootstrapped, the on-droplet `backup.env` is preserved by default;
+ * pass `--rotate-env` to force a fresh upload (PAT rotation, schedule change).
+ * Droplet `*.sh` scripts are always overwritten and `bootstrap.sh` is re-run.
  *
  * Prerequisites:
  *   - .droplet.json must exist    (run `npm run create-droplet` first)
  *   - config.json must exist
- *   - GITHUB_TOKEN env var must be set
+ *   - GITHUB_TOKEN env var must be set on first-run or with --rotate-env
  */
 
 import * as fs from "fs";
@@ -155,6 +157,10 @@ function resolveWebhookSecret(args: ResolveSecretArgs): string {
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 
+function hasFlag(name: string): boolean {
+  return process.argv.slice(2).includes(name);
+}
+
 async function main(): Promise<void> {
   // NR-05: trim before checking. A trailing CR (Windows-line-ending file
   // piped into GITHUB_TOKEN=$(cat token.txt)) or wrapping whitespace
@@ -162,15 +168,14 @@ async function main(): Promise<void> {
   // otherwise pass the presence check and then fail the shape check
   // inside writeBackupEnv with a confusing "characters outside" error
   // on a token the operator "knows is right".
+  //
+  // Phase 5 / TEARDOWN-01 D-01..D-04: the eager unconditional bail-on-empty
+  // moved into the upload branch below. Re-runs that preserve the existing
+  // backup.env do not need a token in the operator's shell.
   const githubToken = (process.env["GITHUB_TOKEN"] ?? "").trim();
-  if (!githubToken) {
-    bail(
-      "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
-        "    Usage: GITHUB_TOKEN=<your_pat> npm run bootstrap-droplet"
-    );
-  }
 
-  const rotateWebhook = process.argv.includes("--rotate-webhook-secret");
+  const rotateWebhook = hasFlag("--rotate-webhook-secret");
+  const rotateEnv = hasFlag("--rotate-env");
 
   const cfg = loadConfig();
   const droplet = loadDropletInfo();
@@ -181,66 +186,104 @@ async function main(): Promise<void> {
 
   await waitForSsh(ip, user, keyPath);
 
-  // ── Resolve webhook secret (preserve on re-bootstrap, opt-in rotation) ──
-  // D-07/D-09: default path reads the existing WEBHOOK_SECRET over SSH and
-  // preserves it (so registered GitHub webhooks keep working across re-runs).
-  // --rotate-webhook-secret generates a fresh value, echoes it once, and
-  // reminds the operator to re-push to GitHub via register-webhooks --update.
-  const webhookSecret = resolveWebhookSecret({
-    rotate: rotateWebhook,
-    sshUser: user,
-    sshKeyPath: keyPath,
-    dropletIp: ip,
-  });
+  console.log(`\n📁  Creating remote directory: ${backupDir}`);
+  sshRun(ip, user, keyPath, `mkdir -p "${backupDir}"`);
 
-  console.log(`\n📝  Generating backup.env…`);
-  const envPath = writeBackupEnv(cfg, githubToken, webhookSecret);
-
-  try {
-    console.log(`\n📁  Creating remote directory: ${backupDir}`);
-    sshRun(ip, user, keyPath, `mkdir -p "${backupDir}"`);
-
-    console.log(`\n🔑  Uploading backup.env…`);
-    scpFile(ip, user, keyPath, envPath, `${backupDir}/backup.env`);
-
-    console.log(`\n📤  Uploading droplet scripts…`);
-    const dropletDir = path.resolve(process.cwd(), "droplet");
-    if (!fs.existsSync(dropletDir)) {
-      bail("droplet/ directory not found in the project root.");
-    }
-
-    // Phase 3 (D-19): the webhook plane needs three non-.sh files uploaded
-    // alongside the existing shell scripts. Expand the suffix allow-list
-    // (was: .sh only) — droplet/bootstrap.sh defensively bails if any of
-    // webhook-listener.js, Caddyfile.template, github-backup-webhook.service
-    // is missing.
-    const scriptFiles = fs
-      .readdirSync(dropletDir, { withFileTypes: true })
-      .filter(
-        (d) => d.isFile() && /\.(sh|js|template|service)$/.test(d.name)
-      )
-      .map((d) => path.join(dropletDir, d.name));
-
-    for (const file of scriptFiles) {
-      const basename = path.basename(file);
-      console.log(`   → ${basename}`);
-      scpFile(ip, user, keyPath, file, `${backupDir}/${basename}`);
-    }
-
-    console.log(`\n🚀  Running bootstrap.sh on the droplet…`);
-    console.log("─".repeat(60));
-    sshRun(
-      ip,
-      user,
-      keyPath,
-      `chmod +x ${backupDir}/*.sh && ${backupDir}/bootstrap.sh`
+  // First-run probe (D-03): the on-droplet backup.env is the only
+  // authoritative signal of "has this droplet been bootstrapped before".
+  // Probe failure (SSH transport error, exit 255) propagates out of
+  // runCapture and bails — never silently treat as "absent" (would let a
+  // network blip overwrite the operator's active token).
+  const probeCmd =
+    `ssh ${sshFlags(keyPath)} ${user}@${ip} ` +
+    `'test -f "${backupDir}/backup.env" && echo present || echo absent'`;
+  const probe = runCapture(probeCmd).trim();
+  if (probe !== "present" && probe !== "absent") {
+    bail(
+      `Unexpected probe response from droplet: ${JSON.stringify(probe)}.\n` +
+        `    Expected 'present' or 'absent'. Aborting to avoid clobbering backup.env.`
     );
-    console.log("─".repeat(60));
-  } finally {
-    // Always delete the local temp file containing the token
-    const tmpDir = path.dirname(envPath);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+  const envExists = probe === "present";
+  const willUpload = !envExists || rotateEnv;
+
+  if (willUpload) {
+    if (!githubToken) {
+      const hint = rotateEnv
+        ? " (--rotate-env requires GITHUB_TOKEN to be set)"
+        : "";
+      bail(
+        "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
+          "    Usage: GITHUB_TOKEN=<your_pat> npm run bootstrap-droplet" +
+          hint
+      );
+    }
+
+    // ── Resolve webhook secret (preserve on re-bootstrap, opt-in rotation) ──
+    // D-07/D-09: default path reads the existing WEBHOOK_SECRET over SSH and
+    // preserves it (so registered GitHub webhooks keep working across re-runs).
+    // --rotate-webhook-secret generates a fresh value, echoes it once, and
+    // reminds the operator to re-push to GitHub via register-webhooks --update.
+    const webhookSecret = resolveWebhookSecret({
+      rotate: rotateWebhook,
+      sshUser: user,
+      sshKeyPath: keyPath,
+      dropletIp: ip,
+    });
+
+    console.log(`\n📝  Generating backup.env…`);
+    const envPath = writeBackupEnv(cfg, githubToken, webhookSecret);
+
+    try {
+      console.log(`\n🔑  Uploading backup.env…`);
+      scpFile(ip, user, keyPath, envPath, `${backupDir}/backup.env`);
+    } finally {
+      // Always delete the local temp file containing the token
+      const tmpDir = path.dirname(envPath);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  } else {
+    // D-04: announce skip explicitly. Operator must never wonder whether
+    // their token survived.
+    console.log(
+      `\n▸  ${backupDir}/backup.env exists on droplet — preserving ` +
+        `(use --rotate-env to overwrite).`
+    );
+  }
+
+  console.log(`\n📤  Uploading droplet scripts…`);
+  const dropletDir = path.resolve(process.cwd(), "droplet");
+  if (!fs.existsSync(dropletDir)) {
+    bail("droplet/ directory not found in the project root.");
+  }
+
+  // Phase 3 (D-19): the webhook plane needs three non-.sh files uploaded
+  // alongside the existing shell scripts. Expand the suffix allow-list
+  // (was: .sh only) — droplet/bootstrap.sh defensively bails if any of
+  // webhook-listener.js, Caddyfile.template, github-backup-webhook.service
+  // is missing.
+  const scriptFiles = fs
+    .readdirSync(dropletDir, { withFileTypes: true })
+    .filter(
+      (d) => d.isFile() && /\.(sh|js|template|service)$/.test(d.name)
+    )
+    .map((d) => path.join(dropletDir, d.name));
+
+  for (const file of scriptFiles) {
+    const basename = path.basename(file);
+    console.log(`   → ${basename}`);
+    scpFile(ip, user, keyPath, file, `${backupDir}/${basename}`);
+  }
+
+  console.log(`\n🚀  Running bootstrap.sh on the droplet…`);
+  console.log("─".repeat(60));
+  sshRun(
+    ip,
+    user,
+    keyPath,
+    `chmod +x ${backupDir}/*.sh && ${backupDir}/bootstrap.sh`
+  );
+  console.log("─".repeat(60));
 
   console.log(`\n✅  Bootstrap complete!`);
   console.log(`\n   SSH into the droplet:`);
