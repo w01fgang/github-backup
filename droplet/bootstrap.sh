@@ -47,6 +47,22 @@ set +a
 chmod 600 "${ENV_FILE}"
 echo "  ✓ backup.env loaded and secured (mode 600)"
 
+# Phase 6: ensure each declared source has a mirror subdir before
+# github-backup.sh runs. Idempotent — mkdir -p is a no-op if the dir
+# exists. GITHUB_SOURCES is the authoritative multi-source list (D-04);
+# fall back to GITHUB_USER_OR_ORG single-source during the upgrade window.
+if [[ -n "${GITHUB_SOURCES:-}" ]]; then
+  read -r -a _BOOT_SOURCES <<< "${GITHUB_SOURCES}"
+elif [[ -n "${GITHUB_USER_OR_ORG:-}" ]]; then
+  _BOOT_SOURCES=( "${GITHUB_USER_OR_ORG}" )
+else
+  _BOOT_SOURCES=()
+fi
+for _s in "${_BOOT_SOURCES[@]}"; do
+  mkdir -p "${BACKUP_DIR}/${_s}"
+done
+unset _BOOT_SOURCES _s
+
 # ── System package updates ─────────────────────────────────────────────────
 echo
 echo "▸ Updating package lists…"
@@ -137,6 +153,10 @@ echo "▸ Setting script permissions…"
 chmod +x "${BACKUP_DIR}/github-backup.sh"
 chmod +x "${BACKUP_DIR}/install-cron.sh"
 chmod +x "${BACKUP_DIR}/sync-one-repo.sh"
+# Phase 6: shared helpers under lib/. github-backup.sh sources them.
+if [[ -d "${BACKUP_DIR}/lib" ]]; then
+  chmod +x "${BACKUP_DIR}/lib"/*.sh
+fi
 echo "  ✓ Scripts are executable"
 
 # ── GitHub CLI authentication ─────────────────────────────────────────────
