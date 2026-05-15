@@ -94,118 +94,222 @@ log() {
   printf '[%s] %s\n' "${ts}" "$*" | tee -a "${LOG_FILE}"
 }
 
+# ── Source Phase 6 helpers (D-05 + REPOS-01) ─────────────────────────────
+# detect_account_type <slug> → "User" | "Organization" (with default-on-error).
+# filter_repos <source> <allow_globs> <deny_globs>: stdin → stdout glob filter.
+# shellcheck source=lib/detect-account-type.sh
+source "${BACKUP_DIR}/lib/detect-account-type.sh"
+# shellcheck source=lib/filter-repos.sh
+source "${BACKUP_DIR}/lib/filter-repos.sh"
+
+# Source-name → env slot helper. MUST match bootstrap-droplet.ts envSlot()
+# byte-for-byte: uppercase, then replace every non-alphanumeric char with `_`.
+# NO trailing-underscore strip (plan 01's envSlot doesn't do it either) — keeps
+# both sides trivially equivalent for any input. The `tr -c '...\n'` complement
+# class includes newline so the trailing \n from printf is preserved (instead
+# of being replaced by `_`).
+slot() { local s; s=$(tr '[:lower:]' '[:upper:]' <<< "$1"); printf '%s\n' "${s}" | tr -c 'A-Z0-9\n' '_'; }
+
 # ── Main ──────────────────────────────────────────────────────────────────
 log "════════════════════════════════════════════════════════"
-log "GitHub backup started — target: ${GITHUB_USER_OR_ORG}"
+log "GitHub backup started"
 log "Backup directory: ${BACKUP_DIR}"
 log "════════════════════════════════════════════════════════"
 
-# ── Detect user vs. organisation ─────────────────────────────────────────
-# The GitHub API exposes different endpoints for users and organisations.
-# We detect the type once so we can pick the right paginated endpoint.
-log "Detecting account type for '${GITHUB_USER_OR_ORG}'…"
-
-ACCOUNT_TYPE=$(
-  gh api "/users/${GITHUB_USER_OR_ORG}" --jq '.type' 2>/dev/null
-) || ACCOUNT_TYPE="User"
-
-if [[ "${ACCOUNT_TYPE}" == "Organization" ]]; then
-  # type=all includes public, private, and forked repos
-  API_ENDPOINT="/orgs/${GITHUB_USER_OR_ORG}/repos?type=all&per_page=100"
-  log "  Account type: Organisation"
-else
-  # type=all includes public, private, and forked repos
-  API_ENDPOINT="/users/${GITHUB_USER_OR_ORG}/repos?type=all&per_page=100"
-  log "  Account type: User"
+# D-04 fallback: GITHUB_SOURCES is the authoritative multi-source list.
+# If the env doesn't carry it (upgraded local TS + un-upgraded droplet
+# scenario), synthesise it from the legacy GITHUB_USER_OR_ORG so this
+# script keeps working as a single-source backup.
+if [[ -z "${GITHUB_SOURCES:-}" ]]; then
+  if [[ -n "${GITHUB_USER_OR_ORG:-}" ]]; then
+    GITHUB_SOURCES="${GITHUB_USER_OR_ORG}"
+    log "GITHUB_SOURCES unset; falling back to legacy GITHUB_USER_OR_ORG=${GITHUB_USER_OR_ORG}"
+  else
+    log "ERROR: neither GITHUB_SOURCES nor GITHUB_USER_OR_ORG is set in backup.env"
+    exit 1
+  fi
 fi
 
-# ── Fetch complete repository list ────────────────────────────────────────
-# gh api --paginate follows GitHub's Link: response header automatically,
-# fetching every page and concatenating the JSON arrays before jq processes them.
-log "Fetching repository list…"
-
-REPO_LIST=$(
-  gh api --paginate "${API_ENDPOINT}" --jq '.[].full_name' 2>>"${LOG_FILE}"
-) || { log "ERROR: gh api failed (exit $?). Aborting."; exit 2; }
-mapfile -t REPOS <<< "${REPO_LIST}"
-# NR-02: drop ALL empty entries, not just a trailing one. A blank line
-# anywhere in the gh api output (mid-stream or post-trim) would otherwise
-# loop with REPO_FULL="" and produce a phantom failure on a "_.git"
-# clone target — tripping the 100%-pass bar with no actionable cause.
-# Note: under `set -u` we must guard expansions of possibly-empty arrays.
-TMP=()
-if [[ "${#REPOS[@]}" -gt 0 ]]; then
-  for r in "${REPOS[@]}"; do [[ -n "$r" ]] && TMP+=("$r"); done
+read -r -a SOURCES <<< "${GITHUB_SOURCES}"
+if [[ "${#SOURCES[@]}" -eq 0 ]]; then
+  log "ERROR: GITHUB_SOURCES parsed to empty list"
+  exit 1
 fi
-REPOS=()
-if [[ "${#TMP[@]}" -gt 0 ]]; then
-  REPOS=("${TMP[@]}")
+log "Sources (${#SOURCES[@]}): ${SOURCES[*]}"
+
+# ─── D-08: legacy single-source layout migration ─────────────────────
+#
+# Phase 1 stored mirrors at ${BACKUP_DIR}/<owner>_<repo>.git (no source
+# segment). Phase 6 moves them to ${BACKUP_DIR}/<source>/<owner>_<repo>.git.
+# Auto-migrate iff exactly one source is configured AND it equals the
+# legacy GITHUB_USER_OR_ORG line previously written to backup.env. Any
+# other case is ambiguous → abort with a pointer to migrate-mirrors.
+shopt -s nullglob
+LEGACY_TOP=( "${BACKUP_DIR}"/*.git )
+shopt -u nullglob
+if [[ "${#LEGACY_TOP[@]}" -gt 0 ]]; then
+  if [[ "${#SOURCES[@]}" -eq 1 ]] \
+     && [[ -n "${GITHUB_USER_OR_ORG:-}" ]] \
+     && [[ "${SOURCES[0]}" == "${GITHUB_USER_OR_ORG}" ]]; then
+    log "Migrating ${#LEGACY_TOP[@]} legacy mirror(s) into ${BACKUP_DIR}/${SOURCES[0]}/ …"
+    mkdir -p "${BACKUP_DIR}/${SOURCES[0]}"
+    for dir in "${LEGACY_TOP[@]}"; do
+      mv "${dir}" "${BACKUP_DIR}/${SOURCES[0]}/"
+    done
+    log "  ✓ Migration complete"
+  else
+    log "ERROR: detected ${#LEGACY_TOP[@]} legacy mirror(s) at top of ${BACKUP_DIR}"
+    log "       but cannot auto-migrate (sources=${#SOURCES[@]}, legacy=${GITHUB_USER_OR_ORG:-<unset>})."
+    log "       Run \`npm run migrate-mirrors -- --from <legacy-source>\` on your"
+    log "       local machine, then re-trigger this backup."
+    exit 1
+  fi
 fi
 
-TOTAL="${#REPOS[@]}"
-log "Found ${TOTAL} $([ "${TOTAL}" -eq 1 ] && echo 'repository' || echo 'repositories')."
-
-# Counters initialised before the TOTAL=0 short-circuit so the last-run.json
-# writer below can reference them unconditionally under `set -u`.
+# ── Outer multi-source loop ──────────────────────────────────────────────
+#
+# Phase 1 contract preserved end-to-end:
+#   - Aggregate BACKUP_SUMMARY upstream=N mirrored=M failed=F at end-of-run.
+#   - last-run.json with locked schema (started_at, finished_at, exit_code,
+#     total, success, fail, repos[]). repos[] now also carries `source`.
+#   - Per-repo work delegated to sync-one-repo.sh (Phase 3 D-15 contract).
+#
+# Phase 6 additions:
+#   - One BACKUP_SOURCE_SUMMARY source=<n> upstream=K mirrored=M failed=F
+#     line per source (D-16).
+#   - Per-source allow/deny filter (REPOS-01) between gh api and sync.
+#   - Mirror layout: ${BACKUP_DIR}/<source>/<owner>_<repo>.git (D-07).
+TOTAL=0
 SUCCESS=0
 FAIL=0
 
-if [[ "${TOTAL}" -eq 0 ]]; then
-  log "Nothing to back up."
-  # Fall through to last-run.json writer — every run MUST emit a state file,
-  # including the zero-repo case (operator's "did anything happen?" check).
-fi
+for SOURCE in "${SOURCES[@]}"; do
+  log ""
+  log "──────────────────────────────────────────"
+  log "  Source: ${SOURCE}"
+  log "──────────────────────────────────────────"
 
-# ── Mirror each repository ────────────────────────────────────────────────
+  # Per-source env var lookup (slot matches bootstrap-droplet.ts envSlot)
+  S="$(slot "${SOURCE}")"
+  ALLOW_VAR="GITHUB_SOURCE_ALLOW_${S}"
+  DENY_VAR="GITHUB_SOURCE_DENY_${S}"
+  ALLOW="${!ALLOW_VAR:-}"
+  DENY="${!DENY_VAR:-}"
+  if [[ -n "${ALLOW}" ]]; then log "  allow: ${ALLOW}"; fi
+  if [[ -n "${DENY}"  ]]; then log "  deny:  ${DENY}"; fi
 
-for REPO_FULL in "${REPOS[@]}"; do
-  # REPO_FULL format: "owner/repo-name"
-  OWNER="${REPO_FULL%%/*}"
-  NAME="${REPO_FULL##*/}"
+  # Per-source mirror dir (idempotent — bootstrap.sh also creates it)
+  mkdir -p "${BACKUP_DIR}/${SOURCE}"
 
-  # Predict per-repo action by mirror-path existence BEFORE invoking the
-  # helper. sync-one-repo.sh mirrors to ${BACKUP_DIR}/${OWNER}_${REPO}.git
-  # (sync-one-repo.sh:83). On non-zero exit we override ROW_ACTION to "fail"
-  # below. Per D-12 the schema enum is clone | update | fail (no "skipped").
-  if [[ -d "${BACKUP_DIR}/${OWNER}_${NAME}.git" ]]; then
-    ROW_ACTION="update"
+  # Detect account type via shared helper (D-05). Defaults to "User" on error.
+  ACCOUNT_TYPE=$(detect_account_type "${SOURCE}")
+  if [[ "${ACCOUNT_TYPE}" == "Organization" ]]; then
+    API_ENDPOINT="/orgs/${SOURCE}/repos?type=all&per_page=100"
+    log "  Account type: Organisation"
   else
-    ROW_ACTION="clone"
+    API_ENDPOINT="/users/${SOURCE}/repos?type=all&per_page=100"
+    log "  Account type: User"
   fi
 
-  REPO_T0="${EPOCHREALTIME}"
+  # Fetch list. Soft fail: log + count one source-level failure but continue
+  # to the next source so a single bad token scope or rate limit doesn't kill
+  # the whole multi-source run.
+  log "  Fetching repository list…"
+  REPO_LIST=$(
+    gh api --paginate "${API_ENDPOINT}" --jq '.[].full_name' 2>>"${LOG_FILE}"
+  ) || {
+    log "  ERROR: gh api failed for ${SOURCE} (exit $?). Skipping source."
+    log "  BACKUP_SOURCE_SUMMARY source=${SOURCE} upstream=0 mirrored=0 failed=1"
+    FAIL=$(( FAIL + 1 ))
+    continue
+  }
 
-  # Per-repo work (clone or update + per-repo lock + per-repo result line)
-  # is delegated to sync-one-repo.sh — same handler the webhook listener calls
-  # (D-15). The global flock at /var/lock/github-backup.lock acquired above on
-  # fd 9 is RETAINED around the whole loop (Phase 1 NR-06 unchanged); sync-one-
-  # repo.sh additionally takes a per-repo lock on fd 8 (D-16). The wrapper here
-  # only tallies SUCCESS/FAIL based on the helper's exit code and keeps the
-  # summary line below unchanged.
-  if "${BACKUP_DIR}/sync-one-repo.sh" "${GITHUB_USER_OR_ORG}" "${OWNER}" "${NAME}"; then
-    (( SUCCESS++ ))
-  else
-    ROW_ACTION="fail"
-    (( FAIL++ ))
+  mapfile -t RAW <<< "${REPO_LIST}"
+  # NR-02: drop ALL empty entries (including the trailing newline mapfile
+  # contributes when REPO_LIST is empty). `set -u`-safe.
+  TMP=()
+  if [[ "${#RAW[@]}" -gt 0 ]]; then
+    for r in "${RAW[@]}"; do [[ -n "$r" ]] && TMP+=("$r"); done
+  fi
+  RAW=()
+  if [[ "${#TMP[@]}" -gt 0 ]]; then
+    RAW=("${TMP[@]}")
   fi
 
-  REPO_DUR_MS=$(awk -v t0="$REPO_T0" -v t1="${EPOCHREALTIME}" 'BEGIN { printf "%d", (t1 - t0) * 1000 }')
-  REPOS_JSON_ROWS+=( "$(jq -n --arg name "${REPO_FULL}" --arg action "${ROW_ACTION}" --argjson duration_ms "${REPO_DUR_MS}" '{name:$name, action:$action, duration_ms:$duration_ms}')" )
+  UPSTREAM="${#RAW[@]}"
+  log "  Upstream: ${UPSTREAM} repo(s) before filter"
+
+  # Apply allow/deny via REPOS-01 helper. Empty allow ⇒ pass-through (SC#5);
+  # deny wins on conflict (SC#4). filter_repos is a no-op when both lists
+  # are empty.
+  FILTERED=()
+  if [[ "${UPSTREAM}" -gt 0 ]]; then
+    mapfile -t FILTERED < <(printf '%s\n' "${RAW[@]}" | filter_repos "${SOURCE}" "${ALLOW}" "${DENY}")
+  fi
+  KEPT="${#FILTERED[@]}"
+  SKIPPED=$(( UPSTREAM - KEPT ))
+  log "  After filter: ${KEPT} repo(s) to mirror (${SKIPPED} skipped by allow/deny)"
+
+  # Per-source counters. The aggregate "100% pass" bar (Phase 1 D-02) applies
+  # post-filter: KEPT is operator intent, SKIPPED is intentional, only failed
+  # mirroring of a kept repo counts as failure.
+  S_SUCCESS=0
+  S_FAIL=0
+
+  for REPO_FULL in "${FILTERED[@]}"; do
+    OWNER="${REPO_FULL%%/*}"
+    NAME="${REPO_FULL##*/}"
+
+    # Predict per-repo action by mirror-path existence BEFORE invoking the
+    # helper. sync-one-repo.sh now mirrors to
+    # ${BACKUP_DIR}/${SOURCE}/${OWNER}_${REPO}.git (D-07). On non-zero exit
+    # we override ROW_ACTION to "fail" below. Schema enum stays clone | update
+    # | fail (D-12).
+    if [[ -d "${BACKUP_DIR}/${SOURCE}/${OWNER}_${NAME}.git" ]]; then
+      ROW_ACTION="update"
+    else
+      ROW_ACTION="clone"
+    fi
+
+    REPO_T0="${EPOCHREALTIME}"
+
+    # Per-repo work delegated to sync-one-repo.sh — same handler the webhook
+    # listener calls (D-15). The global flock on fd 9 is RETAINED around the
+    # whole multi-source run; sync-one-repo.sh additionally takes a per-repo
+    # lock on fd 8 (D-16). Outer wrapper just tallies SUCCESS/FAIL.
+    if "${BACKUP_DIR}/sync-one-repo.sh" "${SOURCE}" "${OWNER}" "${NAME}"; then
+      (( S_SUCCESS++ ))
+    else
+      ROW_ACTION="fail"
+      (( S_FAIL++ ))
+    fi
+
+    REPO_DUR_MS=$(awk -v t0="$REPO_T0" -v t1="${EPOCHREALTIME}" 'BEGIN { printf "%d", (t1 - t0) * 1000 }')
+    REPOS_JSON_ROWS+=( "$(jq -n --arg source "${SOURCE}" --arg name "${REPO_FULL}" --arg action "${ROW_ACTION}" --argjson duration_ms "${REPO_DUR_MS}" '{source:$source, name:$name, action:$action, duration_ms:$duration_ms}')" )
+  done
+
+  # Per-source SUMMARY marker (D-16). Same shape as the aggregate so verify +
+  # smoke parsers can reuse one regex with an extra `source=` capture.
+  log "  BACKUP_SOURCE_SUMMARY source=${SOURCE} upstream=${KEPT} mirrored=${S_SUCCESS} failed=${S_FAIL}"
+
+  TOTAL=$(( TOTAL + KEPT ))
+  SUCCESS=$(( SUCCESS + S_SUCCESS ))
+  FAIL=$(( FAIL + S_FAIL ))
 done
 
 # ── Summary ───────────────────────────────────────────────────────────────
+log ""
 log "════════════════════════════════════════════════════════"
 log "Backup finished — success: ${SUCCESS}, failed: ${FAIL}"
 log "════════════════════════════════════════════════════════"
 
+# Phase 1 BACKUP_SUMMARY shape preserved EXACTLY (no new tokens, parser-stable).
+# Numbers are post-filter: TOTAL = sum of per-source KEPT (operator intent).
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
 
 # ── Atomic last-run.json writer (Phase 2 D-03) ─────────────────────────────
-# Every run emits /var/lib/github-backup/last-run.json with the locked schema
-# (see .planning/phases/02-monitoring/02-01-PLAN.md <schema>). Atomic write
-# via temp + rename on the same filesystem prevents readers from seeing a
-# half-written file. The TOTAL=0 path lands here too — empty repos[] array,
-# success=0 fail=0, exit_code=0.
+# Locked schema preserved; repos[] entries now carry `source` (Phase 6
+# additive — Phase 2 reader treats unknown fields permissively).
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [[ "${FAIL}" -gt 0 ]]; then EXIT_CODE=1; else EXIT_CODE=0; fi
 

@@ -80,8 +80,13 @@ log() {
 }
 
 # ── Mirror dance ─────────────────────────────────────────────────────────────
-MIRROR_PATH="${BACKUP_DIR}/${OWNER}_${REPO}.git"
+MIRROR_PATH="${BACKUP_DIR}/${SOURCE}/${OWNER}_${REPO}.git"
 CLONE_URL="https://github.com/${OWNER}/${REPO}.git"
+
+# Phase 6: ensure the per-source mirror parent exists (idempotent). bootstrap.sh
+# also creates these dirs at install time, but a webhook event for a brand-new
+# source could race ahead of the next bootstrap; mkdir -p is cheap.
+mkdir -p "${BACKUP_DIR}/${SOURCE}"
 
 start_ms=$(date +%s%3N)
 ACTION="fail"
