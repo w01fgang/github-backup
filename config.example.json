@@ -1,5 +1,5 @@
 {
-  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable. restoreTestRepo is OPTIONAL — only consumed by `npm run verify:phase-4`; safe to leave as the placeholder until you want to verify restore correctness. webhookHostname is REQUIRED — operator must point an A record at the droplet IP before `npm run bootstrap-droplet`. webhookTestRepo is OPTIONAL — only consumed by `npm run verify:phase-3`.",
+  "_readme": "Copy this file to config.json and fill in all values. GITHUB_TOKEN is NOT stored here — set it as an environment variable. restoreTestRepo is OPTIONAL — only consumed by `npm run verify:phase-4`. webhookHostname is REQUIRED — operator must point an A record at the droplet IP before `npm run bootstrap-droplet`. webhookTestRepo is OPTIONAL — only consumed by `npm run verify:phase-3`.",
 
   "region": "nyc3",
   "size": "s-1vcpu-1gb",
@@ -12,6 +12,19 @@
   "sshKeyPath": "~/.ssh/id_rsa",
   "sshUser": "root",
 
+  "_comment_sources": "Phase 6 multi-source. Each entry is either a bare string (just a github user/org name, no per-repo filtering) OR an object with optional repos.allow / repos.deny glob lists. Globs use bash case syntax (* ? [..]). ROADMAP SC#4: deny wins on conflict. ROADMAP SC#5: empty allow = all repos of source. A bare pattern like \"foo-*\" matches the repo basename; an \"owner/name\" pattern matches full_name verbatim.",
+  "githubSources": [
+    "myusername",
+    {
+      "name": "acme-org",
+      "repos": {
+        "allow": ["acme-org/api-*", "acme-org/web-*"],
+        "deny":  ["*-archive", "acme-org/internal-secrets"]
+      }
+    }
+  ],
+
+  "_comment_legacy": "githubUserOrOrg is still accepted as a legacy single-source field. If both fields are set, githubSources wins with a printed deprecation warning. The legacy line is also written to backup.env so a not-yet-upgraded droplet keeps working against source #1.",
   "githubUserOrOrg": "myusername",
 
   "backupDir": "/opt/github-backups",
