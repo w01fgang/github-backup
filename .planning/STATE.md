@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-last_updated: "2026-05-15T00:00:00.000Z"
+last_updated: "2026-05-15T04:03:16.646Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 19
-  completed_plans: 12
-  percent: 79
+  completed_plans: 16
+  percent: 84
 ---
 
 # State
@@ -21,8 +21,8 @@ progress:
 
 ## Current Position
 
-Phase: 03
-Plan: Not started
+Phase: 06 (multi-source) — EXECUTED
+Plan: 3 of 3 complete
 
 - Milestone: v1
 - Phase: 1 (Verify pipeline) — 3 plans coded; NR-01..09 fixes applied from review iter3
@@ -64,9 +64,11 @@ Recent additions (2026-05-11):
 - Phase 2 planned 2026-05-12: 02-01 (instrument `github-backup.sh` + `bootstrap.sh` for `last-run.json` writer + `/var/lib/github-backup` mode 700) + 02-02 (`droplet/github-backup-status.sh` reader/formatter, text+JSON, D-10 staleness lookup table) + 02-03 (`scripts/status.ts` local SSH wrapper + npm script) + 02-04 (`scripts/verify/phase-2.ts` + npm script). Waves: 1 = {01, 02} parallel; 2 = {03}; 3 = {04}. last-run.json schema locked in Plan 01 and re-stated in Plans 02 + 04 for self-containment. Webhook amendment from 2026-05-11 explicitly deferred to Phase 3 per CONTEXT.md.
 - Phase 3 plan must capture: Caddy reverse-proxy config, LE issuance via ACME, `hostname` + `letsEncryptEmail` config keys, systemd unit for listener, TEST-03 design
 - Phase 5 EXECUTED 2026-05-15 (commits 7093794, 332bdcd): 05-01 added `--rotate-env` + ssh probe + conditional upload to `scripts/bootstrap-droplet.ts` (token-gate moved to upload branch, skip-path tolerates unset GITHUB_TOKEN); 05-02 created `scripts/verify/phase-5.ts` (5 groups: pre-conds / preservation / cron-marker / --rotate-env round-trip env-gated / listener-survival probe-gated), wired `npm run verify:phase-5`, added README `## Lifecycle` section. Static gates pass (`npx tsc --noEmit` exit 0; both SUMMARY.md files written). Live-droplet end-to-end verification still owed — operator runs `npm run verify:phase-5` against an existing droplet.
-- Phase 6 planned 2026-05-12: 06-01 (TS: extend `Config` w/ `githubSources` + `repos.allow/deny`, multi-source `backup.env` writer in `bootstrap-droplet.ts`, upload `droplet/lib/*.sh`, wire `migrate-mirrors` + `verify:phase-6` npm scripts) + 06-02 (bash: extract `droplet/lib/detect-account-type.sh` D-05, new `droplet/lib/filter-repos.sh` glob filter, rewrite `github-backup.sh` outer source loop + REPOS-01 filter + namespaced layout + legacy auto-migration D-08 + per-source `BACKUP_SOURCE_SUMMARY` D-16) + 06-03 (`scripts/migrate-mirrors.ts` D-09, `scripts/verify/phase-6.ts` 5 groups inc. REPOS-01 deny-on-disk + slot-cross-check, smoke-test extension, `config.example.json` 2-source example, README Multi-source section). Waves: 1 = {06-01, 06-02} parallel (no file overlap); 2 = {06-03}. Slot algorithm contract documented in both 06-01 task 2 and 06-02 task 3.
+- Phase 6 EXECUTED 2026-05-15: 06-01 (TS multi-source Config + writeBackupEnv + droplet/lib upload + npm scripts) + 06-02 (bash detect-account-type + filter-repos + github-backup.sh outer loop + namespaced sync-one-repo.sh + bootstrap.sh per-source mkdir) + 06-03 (migrate-mirrors.ts + verify/phase-6.ts 5 groups + smoke-test multi-source assertions + config.example.json + README Multi-source section). 13 commits. Static gates: tsc --noEmit clean, bash -n clean on all 5 droplet scripts. Live-droplet end-to-end UAT still owed (npm run verify:phase-6 + npm run smoke-test against a 2-source droplet with one source carrying a non-empty deny glob). Two known holes deferred to Phase 3.x: (1) webhook-listener.js still uses single ALLOWED_SOURCE — multi-source webhook routing not wired (events for source #2 currently 404); (2) webhook-listener.js does NOT source droplet/lib/filter-repos.sh — a push to a denied repo would still trigger a sync (cron path is correctly filtered; webhook path isn't). Phase 6 plan 03 group 6 explicitly defers both to Phase 3 verify.
 - Cross-phase contract: Phase 3 plan MUST source `droplet/lib/filter-repos.sh` in the webhook handler so REPOS-01 SC#4 (deny wins) applies to webhook-triggered syncs (informational in 06-03 group 6; assertion owned by Phase 3 verify).
+- Phase 3.x follow-ups identified during Phase 6 execution: (a) webhook-listener.js multi-source routing — read GITHUB_SOURCES env list, accept any owner in it (not just GITHUB_USER_OR_ORG); (b) webhook-listener.js sources droplet/lib/filter-repos.sh and applies filter_repos before dispatching sync-one-repo.sh; (c) Phase 3 verify (verify:phase-3.ts) extended to assert both behaviours.
 - Revisit smoke-test step 8 (`gh api` user-vs-org logic) RESOLVED by Phase 6 plan 06-02 task 1 (`detect-account-type.sh`)
+- Phase 6 deviations: (a) sync-one-repo.sh updated despite not being in plan 06-02 files_modified — D-07 namespaced layout truth required it; (b) verify/phase-3.ts updated for cfg.githubUserOrOrg → cfg.sources[0].name shift (legacy field now optional); both documented in their plan SUMMARYs.
 
 ## Plan-checker notes (Phase 1, non-blocking)
 

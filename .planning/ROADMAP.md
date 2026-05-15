@@ -149,9 +149,9 @@
 **Depends on**: Phases 1, 2, 3
 
 **Plans:** 3 plans
-- [ ] 06-01-config-and-env-PLAN.md — TS `Config` schema (multi-source + REPOS-01), `backup.env` writer, `droplet/lib/` upload, npm script wiring (Wave 1)
-- [ ] 06-02-droplet-loop-PLAN.md — `droplet/lib/detect-account-type.sh` + `droplet/lib/filter-repos.sh`, multi-source loop + namespaced layout + legacy migration in `github-backup.sh`, per-source mkdir in `bootstrap.sh` (Wave 1)
-- [ ] 06-03-verify-and-helpers-PLAN.md — `scripts/migrate-mirrors.ts`, `scripts/verify/phase-6.ts` (5 groups), smoke-test extension, `config.example.json`, README Multi-source section (Wave 2)
+- [x] 06-01-config-and-env-PLAN.md — TS `Config` schema (multi-source + REPOS-01), `backup.env` writer, `droplet/lib/` upload, npm script wiring (Wave 1)
+- [x] 06-02-droplet-loop-PLAN.md — `droplet/lib/detect-account-type.sh` + `droplet/lib/filter-repos.sh`, multi-source loop + namespaced layout + legacy migration in `github-backup.sh`, per-source mkdir in `bootstrap.sh` (Wave 1)
+- [x] 06-03-verify-and-helpers-PLAN.md — `scripts/migrate-mirrors.ts`, `scripts/verify/phase-6.ts` (5 groups), smoke-test extension, `config.example.json`, README Multi-source section (Wave 2)
 
 ---
 
