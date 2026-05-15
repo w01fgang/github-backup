@@ -37,6 +37,10 @@ import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
 const BACKUP_SUMMARY_RE =
   /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] BACKUP_SUMMARY upstream=(\d+) mirrored=(\d+) failed=(\d+)$/m;
 
+/** Phase 6 D-16: per-source SUMMARY emitted alongside the aggregate. */
+const SOURCE_SUMMARY_RE =
+  /BACKUP_SOURCE_SUMMARY source=(\S+) upstream=(\d+) mirrored=(\d+) failed=(\d+)/g;
+
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
 const REMOTE_BACKUP = `${REMOTE_DIR}/github-backup.sh`;
@@ -129,18 +133,23 @@ function triggerBackup(ip: string, user: string, keyPath: string): string {
 
 /**
  * Step 6: SSH-probe — return the path of one mirror on the droplet.
- * Verifies at least one *.git directory exists in REMOTE_DIR.
+ * Verifies at least one *.git directory exists under REMOTE_DIR.
+ *
+ * Phase 6: mirrors live at ${REMOTE_DIR}/<source>/<owner>_<repo>.git, not at
+ * the top level. find -maxdepth 2 covers both layouts (the top-level Phase 1
+ * pattern is also caught at maxdepth 1) so this probe works during the
+ * migration window too.
  */
 function pickRemoteMirror(ip: string, user: string, keyPath: string): string {
   const out = sshCapture(
     ip,
     user,
     keyPath,
-    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | head -n 1`
+    `find ${REMOTE_DIR} -maxdepth 2 -type d -name "*.git" 2>/dev/null | head -n 1`
   );
   if (!out) {
     bail(
-      `SSH-probe failed: no *.git mirror found in ${REMOTE_DIR} on droplet`
+      `SSH-probe failed: no *.git mirror found under ${REMOTE_DIR} on droplet`
     );
   }
   console.log(`   SSH-probe: found mirror ${out}`);
@@ -262,12 +271,96 @@ function enforcePassBar(
     process.exit(1);
   }
 
+  // Phase 6 D-16: per-source BACKUP_SOURCE_SUMMARY appears once per source.
+  // Parse the same tail and assert: count matches cfg.sources, source names
+  // match cfg.sources names (set equality), and per-source aggregates sum to
+  // the aggregate BACKUP_SUMMARY upstream/mirrored. Additive assertion: the
+  // single-source legacy case sees exactly 1 BACKUP_SOURCE_SUMMARY line which
+  // trivially passes.
+  const cfgPhase6 = loadConfig();
+  const sourceMatches: { source: string; upstream: number; mirrored: number; failed: number }[] = [];
+  // Re-fetch a wider tail for the source summaries — they appear once per
+  // source so a 2-source run has 2 lines somewhere in the post-tStart window.
+  const wideTail = sshCapture(ip, user, keyPath, `tail -n 500 ${REMOTE_LOG}`);
+  const tsRe = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/;
+  for (const line of wideTail.split("\n")) {
+    const tsMatch = line.match(tsRe);
+    if (!tsMatch || tsMatch[1] < tStart) continue;
+    SOURCE_SUMMARY_RE.lastIndex = 0;
+    const mm = SOURCE_SUMMARY_RE.exec(line);
+    if (mm) {
+      sourceMatches.push({
+        source: mm[1],
+        upstream: parseInt(mm[2], 10),
+        mirrored: parseInt(mm[3], 10),
+        failed: parseInt(mm[4], 10),
+      });
+    }
+  }
+
+  const expectedSources = cfgPhase6.sources.map((s) => s.name);
+  if (sourceMatches.length !== expectedSources.length) {
+    bail(
+      `Phase 6 D-16: expected ${expectedSources.length} BACKUP_SOURCE_SUMMARY ` +
+        `line(s) post-tStart, got ${sourceMatches.length}`
+    );
+  }
+  const observedSorted = sourceMatches.map((m) => m.source).sort();
+  const expectedSorted = [...expectedSources].sort();
+  if (JSON.stringify(observedSorted) !== JSON.stringify(expectedSorted)) {
+    bail(
+      `Phase 6 D-16: BACKUP_SOURCE_SUMMARY source= values do not match cfg.sources: ` +
+        `got ${JSON.stringify(observedSorted)} expected ${JSON.stringify(expectedSorted)}`
+    );
+  }
+  const sumUpstream = sourceMatches.reduce((a, m) => a + m.upstream, 0);
+  const sumMirrored = sourceMatches.reduce((a, m) => a + m.mirrored, 0);
+  const sumFailed = sourceMatches.reduce((a, m) => a + m.failed, 0);
+  if (sumMirrored !== sumUpstream || sumFailed !== 0) {
+    bail(
+      `Phase 6 D-16 100%-pass: per-source mirrored=${sumMirrored} upstream=${sumUpstream} failed=${sumFailed}`
+    );
+  }
+  if (upstream !== sumUpstream) {
+    bail(
+      `Phase 6 D-16 sum check: aggregate upstream ${upstream} != sum of per-source upstream ${sumUpstream}`
+    );
+  }
+  console.log(
+    `   Per-source SUMMARY OK — ${sourceMatches.length} source(s), aggregate matches sum`
+  );
+
+  // Per-source SSH probe — for each source, assert at least one *.git exists
+  // under ${REMOTE_DIR}/<source>/. Soft-skip a source whose filtered upstream
+  // is zero (the operator may have denied everything for that source).
+  for (const s of cfgPhase6.sources) {
+    const cnt = parseInt(
+      sshCapture(
+        ip,
+        user,
+        keyPath,
+        `ls -1d ${REMOTE_DIR}/${s.name}/*.git 2>/dev/null | wc -l`
+      ).trim(),
+      10
+    );
+    if (cnt === 0) {
+      console.log(
+        `   [soft] ${REMOTE_DIR}/${s.name}/ has 0 *.git mirrors (filtered out, or upstream empty)`
+      );
+    } else {
+      console.log(`   ${REMOTE_DIR}/${s.name}/ has ${cnt} *.git mirror(s)`);
+    }
+  }
+
   // Cross-check filesystem count.
+  // Phase 6: mirrors are at ${REMOTE_DIR}/<source>/<owner>_<repo>.git.
+  // find -maxdepth 2 also catches the legacy Phase 1 top-level layout
+  // during the migration window.
   const fsCountStr = sshCapture(
     ip,
     user,
     keyPath,
-    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | wc -l`
+    `find ${REMOTE_DIR} -maxdepth 2 -type d -name "*.git" 2>/dev/null | wc -l`
   );
   const fsCount = parseInt(fsCountStr.trim(), 10);
   if (fsCount !== mirrored) {
