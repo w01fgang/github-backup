@@ -258,8 +258,114 @@ git remote set-url origin https://github.com/myorg/myrepo.git
 ### Clone a bare mirror (re-mirror to another machine)
 
 ```bash
-git clone --mirror root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git myrepo.git
+git clone --mirror root@DROPLET_IP:/opt/github-backups/myorg/myorg_myrepo.git myrepo.git
 ```
+
+(Phase 6 namespaced layout — see "Multi-source + per-repo filtering" below.
+The pre-Phase-6 path was `/opt/github-backups/myorg_myrepo.git`; auto-migrated
+on the next backup run for single-source configs.)
+
+---
+
+## Multi-source + per-repo filtering
+
+A single droplet can back up multiple users/orgs and apply per-source
+allow/deny globs. Set `githubSources` in `config.json`:
+
+```json
+{
+  "githubSources": [
+    "myusername",
+    {
+      "name": "acme-org",
+      "repos": {
+        "allow": ["acme-org/api-*", "acme-org/web-*"],
+        "deny":  ["*-archive", "acme-org/internal-secrets"]
+      }
+    }
+  ]
+}
+```
+
+Each entry is either:
+- a bare string (just the github user/org name, no per-repo filter), or
+- an object with `name` and an optional `repos: { allow?, deny? }`.
+
+See `config.example.json` for the full shape.
+
+### Allow/deny semantics
+
+- **Empty `allow` ⇒ all repos of the source pass the allow stage** (ROADMAP SC#5).
+- **Non-empty `allow` ⇒ a repo must match at least one allow glob to pass.**
+- **`deny` always wins on conflict** — if any deny glob matches, the repo is
+  dropped, even if an allow glob also matched (ROADMAP SC#4).
+- Globs use bash `case` syntax: `*`, `?`, `[..]`. A bare pattern like `foo-*`
+  matches the repo basename (after the `owner/`); an `owner/name` pattern like
+  `acme/foo-*` matches the full name verbatim.
+
+### Mirror layout
+
+Phase 6 stores each mirror under a per-source subdirectory:
+
+```
+${BACKUP_DIR}/<source>/<owner>_<repo>.git
+```
+
+For example: `/opt/github-backups/acme-org/acme-org_api-orders.git`.
+
+Phase 1 stored mirrors flat at `${BACKUP_DIR}/<owner>_<repo>.git`. The Phase 6
+backup script auto-migrates this layout on the next run **when exactly one
+source is configured AND it equals the legacy `githubUserOrOrg` field**. The
+multi-source upgrade case is ambiguous (which source owns each legacy mirror?)
+so the script refuses and tells you to run the migration tool explicitly:
+
+### Upgrading from a Phase-1 single-source droplet
+
+1. Set `githubSources` in `config.json` to your source name(s).
+2. Re-run `GITHUB_TOKEN=… npm run bootstrap-droplet` to push the new
+   `backup.env` (with `GITHUB_SOURCES` and per-source allow/deny lines)
+   and create the per-source mirror subdirs. Existing mirrors are left
+   in place at this stage.
+3. **Single-source upgrade:** trigger any backup run — `github-backup.sh`
+   detects the legacy layout, moves every top-level `*.git` under
+   `${BACKUP_DIR}/<legacy>/`, then proceeds normally. No manual command.
+4. **Multi-source upgrade:** run
+   ```bash
+   npm run migrate-mirrors -- --from <legacy-source-name>
+   ```
+   This SSH'es to the droplet, `mv`'s each top-level `*.git` into
+   `${BACKUP_DIR}/<legacy-source-name>/`, and exits. Idempotent: a second
+   run prints "nothing to move".
+5. Subsequent cron sweeps and webhook events run against the new layout.
+
+### Verify
+
+```bash
+GITHUB_TOKEN=… npm run verify:phase-6
+```
+
+Five assertion groups against a live droplet:
+
+1. `cfg.sources` matches the `GITHUB_SOURCES` line in `backup.env`,
+   plus per-source allow/deny env lines.
+2. `${BACKUP_DIR}/<source>/` exists per source; no top-level `*.git`
+   remains (legacy fully migrated).
+3. Per-source `BACKUP_SOURCE_SUMMARY` log line per source; aggregate
+   `BACKUP_SUMMARY` upstream/mirrored equal the sum of per-source lines.
+4. `repos.deny` enforcement — denied repos have no on-disk mirror.
+5. The TS `envSlot()` and bash `slot()` functions agree on every
+   configured source name (cross-language contract).
+
+Soft-skips groups 1+2+5 with a clear message when only one source is
+configured (the multi-source path is the one being verified).
+
+### Back-compat with Phase 1
+
+`githubUserOrOrg` is still accepted as a legacy single-source field. If both
+`githubUserOrOrg` and `githubSources` are set, `githubSources` wins with a
+printed deprecation warning. The legacy `GITHUB_USER_OR_ORG=…` line is also
+written to `backup.env` so a not-yet-upgraded `github-backup.sh` keeps working
+against source #1. Removing `githubUserOrOrg` is a v2 breaking change, deferred.
 
 ---
 
