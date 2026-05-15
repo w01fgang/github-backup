@@ -345,6 +345,46 @@ cron-driven backup still writes to `/var/log/github-backup.log`.
 
 ---
 
+## Lifecycle
+
+### Re-running bootstrap is safe
+
+`npm run bootstrap-droplet` is idempotent. On a droplet that has already
+been bootstrapped, the on-droplet `backup.env` (which holds your
+`GITHUB_TOKEN`) is **preserved by default** — re-running after editing
+`droplet/*.sh` will ship the script changes without touching your token.
+A line like `▸ /opt/github-backups/backup.env exists on droplet —
+preserving` confirms the skip.
+
+To deliberately rotate your PAT or change `cronSchedule` /
+`githubUserOrOrg` in `config.json`:
+
+```bash
+GITHUB_TOKEN=<new_pat> npm run bootstrap-droplet -- --rotate-env
+```
+
+`--rotate-env` requires `GITHUB_TOKEN` to be set.
+
+### Teardown
+
+Manual: delete the droplet from the
+[DigitalOcean control panel](https://cloud.digitalocean.com/droplets),
+then remove the local `.droplet.json`. There is no `npm run destroy-droplet`
+command — single-operator scale, single command at the DO dashboard.
+
+### Verify idempotency
+
+```bash
+npm run verify:phase-5
+```
+
+Asserts `backup.env` is preserved across a re-run, exactly one
+`# github-backup-managed` cron line exists before and after, and (if
+`GITHUB_TOKEN` is set) the `--rotate-env` round-trip leaves the file
+parseable. Non-destructive by default.
+
+---
+
 ## Recovery
 
 The droplet mirrors are a read-only sink. Recovery flows are one-way:
