@@ -9,6 +9,25 @@
 import * as fs from "fs";
 import * as path from "path";
 
+/**
+ * Phase 6 multi-source: each entry in `githubSources` is either a bare string
+ * (just the user/org slug, no per-repo filtering) or an object with optional
+ * allow/deny glob lists. `loadConfig()` normalises both shapes into
+ * `cfg.sources: NormalizedSource[]` so downstream code touches a single shape.
+ */
+export interface SourceFilter {
+  allow?: string[]; // bash globs; empty / missing = all repos of the source
+  deny?: string[];  // bash globs; deny wins on conflict (ROADMAP SC#4)
+}
+
+export type SourceEntry = string | { name: string; repos?: SourceFilter };
+
+export interface NormalizedSource {
+  name: string;
+  allow: string[]; // always present, may be empty (= match all)
+  deny: string[];  // always present, may be empty
+}
+
 export interface Config {
   region: string;
   size: string;
@@ -18,7 +37,25 @@ export interface Config {
   sshKeyFingerprint: string;
   sshKeyPath: string;
   sshUser: string;
-  githubUserOrOrg: string;
+  /**
+   * Phase 1 single-source field. Optional from Phase 6 onward — exactly one of
+   * `githubUserOrOrg` or `githubSources` must resolve to a non-empty list.
+   * Still written as the legacy `GITHUB_USER_OR_ORG=` line in backup.env so a
+   * not-yet-upgraded droplet script keeps working against source #1.
+   */
+  githubUserOrOrg?: string;
+  /**
+   * Phase 6 multi-source declaration. Raw shape from disk; `loadConfig()`
+   * normalises into `sources` (do not consume `githubSources` directly
+   * downstream — use `cfg.sources`).
+   */
+  githubSources?: SourceEntry[];
+  /**
+   * Phase 6 normalised view. Always populated by `loadConfig()`. Empty array
+   * is impossible — `loadConfig()` bails when both `githubUserOrOrg` and
+   * `githubSources` are missing/empty.
+   */
+  sources: NormalizedSource[];
   backupDir: string;
   cronSchedule: string;
   allowedSSHCidr: string;
@@ -55,7 +92,9 @@ const REQUIRED_FIELDS: (keyof Config)[] = [
   "sshKeyFingerprint",
   "sshKeyPath",
   "sshUser",
-  "githubUserOrOrg",
+  // githubUserOrOrg is no longer required since Phase 6 — exactly one of
+  // githubUserOrOrg or githubSources must resolve to a non-empty list,
+  // checked in the multi-source normalisation block below.
   "backupDir",
   "cronSchedule",
   "allowedSSHCidr",
@@ -133,6 +172,110 @@ export function loadConfig(): Config {
       );
     }
   }
+  // ─── Phase 6 multi-source normalisation ───────────────────────────────
+  // Collapse the two accepted shapes (legacy single-source `githubUserOrOrg`
+  // and `githubSources` array of strings/objects) into `cfg.sources:
+  // NormalizedSource[]`. Validates duplicate names, shell-unsafe names,
+  // and malformed allow/deny globs (REPOS-01). Inserted BEFORE the cron
+  // check so a bad cron still fails loud below.
+  const rawSources: SourceEntry[] | undefined = cfg.githubSources;
+  const legacy: string | undefined = cfg.githubUserOrOrg;
+
+  let entries: SourceEntry[];
+  if (Array.isArray(rawSources) && rawSources.length > 0) {
+    if (legacy) {
+      console.warn(
+        `⚠️  config.json: both "githubUserOrOrg" and "githubSources" set. ` +
+          `"githubSources" wins; "githubUserOrOrg" ignored (deprecated, ` +
+          `kept only for the legacy backup.env line so a roll-back works).`
+      );
+    }
+    entries = rawSources;
+  } else if (legacy) {
+    entries = [legacy]; // single-source back-compat (D-02)
+  } else {
+    bail(
+      `config.json must set either "githubSources" (array) or ` +
+        `"githubUserOrOrg" (legacy single-source string). Both are empty.`
+    );
+  }
+
+  const normalised: NormalizedSource[] = [];
+  const seen = new Set<string>();
+  for (const e of entries) {
+    let name: string;
+    let allow: string[] = [];
+    let deny: string[] = [];
+
+    if (typeof e === "string") {
+      name = e;
+    } else if (e && typeof e === "object" && typeof (e as { name?: unknown }).name === "string") {
+      name = (e as { name: string }).name;
+      const f = (e as { repos?: SourceFilter }).repos;
+      if (f) {
+        if (f.allow !== undefined) {
+          if (!Array.isArray(f.allow) || f.allow.some((g) => typeof g !== "string")) {
+            bail(
+              `config.json: source "${name}" has invalid repos.allow ` +
+                `(must be string[]). Got: ${JSON.stringify(f.allow)}`
+            );
+          }
+          allow = f.allow;
+        }
+        if (f.deny !== undefined) {
+          if (!Array.isArray(f.deny) || f.deny.some((g) => typeof g !== "string")) {
+            bail(
+              `config.json: source "${name}" has invalid repos.deny ` +
+                `(must be string[]). Got: ${JSON.stringify(f.deny)}`
+            );
+          }
+          deny = f.deny;
+        }
+      }
+    } else {
+      bail(
+        `config.json: githubSources entry must be string or {name,repos?}. ` +
+          `Got: ${JSON.stringify(e)}`
+      );
+    }
+
+    if (!name) bail(`config.json: githubSources entry has empty name`);
+    if (!SHELL_SAFE_RE.test(name)) {
+      bail(
+        `config.json: source name "${name}" contains characters outside ` +
+          `[A-Za-z0-9._/~@:-]; refusing (would be interpolated into shell + env-var names). ` +
+          `See D-03/D-08.`
+      );
+    }
+    if (seen.has(name)) {
+      bail(`config.json: duplicate source name "${name}" in githubSources (D-03)`);
+    }
+    seen.add(name);
+
+    // Glob shape guard: empty + injection-relevant chars rejected. Bash
+    // glob meta (* ? [..]) stays allowed — they're literal inside the
+    // double-quoted env line on the droplet side.
+    for (const list of [allow, deny]) {
+      for (const g of list) {
+        if (g.length === 0) {
+          bail(
+            `config.json: source "${name}" has empty glob in allow/deny list`
+          );
+        }
+        if (/["`$\\\n\r]/.test(g)) {
+          bail(
+            `config.json: source "${name}" glob "${g}" contains forbidden ` +
+              `characters (quote/backtick/dollar/backslash/newline); refusing.`
+          );
+        }
+      }
+    }
+
+    normalised.push({ name, allow, deny });
+  }
+
+  cfg.sources = normalised;
+  // ──────────────────────────────────────────────────────────────────────
   // NR-03: cronSchedule is interpolated into backup.env quoted as
   // CRON_SCHEDULE="…", which the droplet sources via `set -a; source`.
   // A stray `"`, `$`, backtick, or newline would corrupt the env file

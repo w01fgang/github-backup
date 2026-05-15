@@ -234,7 +234,7 @@ async function main(): Promise<void> {
   // ── Group 3: Bad signature → 401 ───────────────────────────────────────
   console.log("\n── Group 3: Bad signature");
   {
-    const body = syntheticPushPayload(cfg.githubUserOrOrg, "repo-doesnt-matter");
+    const body = syntheticPushPayload(cfg.sources[0].name, "repo-doesnt-matter");
     const badSig = signPayload(body, "nope".repeat(16));
     const r = await postWebhook(cfg.webhookHostname, body, {
       "X-GitHub-Event": "push",
@@ -252,8 +252,8 @@ async function main(): Promise<void> {
   } else {
     const [owner, repo] = cfg.webhookTestRepo.split("/");
     assert(
-      owner === cfg.githubUserOrOrg,
-      `cfg.webhookTestRepo owner "${owner}" matches cfg.githubUserOrOrg "${cfg.githubUserOrOrg}" (Phase 6 will relax this)`
+      cfg.sources.some((s) => s.name === owner),
+      `cfg.webhookTestRepo owner "${owner}" matches a configured source name (Phase 6 multi-source: webhookTestRepo owner must be one of ${JSON.stringify(cfg.sources.map((s) => s.name))})`
     );
     const body = syntheticPushPayload(owner, repo);
     const delivery = makeDelivery();
