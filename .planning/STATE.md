@@ -70,6 +70,13 @@ Recent additions (2026-05-11):
 - Revisit smoke-test step 8 (`gh api` user-vs-org logic) RESOLVED by Phase 6 plan 06-02 task 1 (`detect-account-type.sh`)
 - Phase 6 deviations: (a) sync-one-repo.sh updated despite not being in plan 06-02 files_modified — D-07 namespaced layout truth required it; (b) verify/phase-3.ts updated for cfg.githubUserOrOrg → cfg.sources[0].name shift (legacy field now optional); both documented in their plan SUMMARYs.
 
+## Accumulated Context
+
+### Pending Todos
+- **Missing sync-one-repo.sh** — `github-backup.sh:280` calls it; bootstrap never uploads it. Created 2026-05-16.
+- **Missing Phase-6 lib helpers** — `detect-account-type.sh` + `filter-repos.sh` sourced but absent from `droplet/lib/`. Created 2026-05-16.
+- **Webhook files optional in uploader** — `bootstrap.sh:202` hard-fails if missing; uploader silently skips. Created 2026-05-16.
+
 ## Plan-checker notes (Phase 1, non-blocking)
 
 5 quality refinements flagged (4 LOW, 1 MED), no blockers. See `.planning/phases/01-verify-pipeline/` plan files. MED issue (#4): smoke-test step 8 duplicates `gh api` user-vs-org logic from `droplet/github-backup.sh` — single-source safe for Phase 1, revisit at Phase 6 (multi-source).
