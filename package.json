@@ -16,7 +16,8 @@
     "register-webhooks": "tsx scripts/register-webhooks.ts",
     "verify:phase-3": "tsx scripts/verify/phase-3.ts",
     "migrate-mirrors": "tsx scripts/migrate-mirrors.ts",
-    "verify:phase-6": "tsx scripts/verify/phase-6.ts"
+    "verify:phase-6": "tsx scripts/verify/phase-6.ts",
+    "verify:phase-7": "tsx scripts/verify/phase-7.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
