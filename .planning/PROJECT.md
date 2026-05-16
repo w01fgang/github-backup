@@ -29,6 +29,7 @@ Fire-and-forget system that mirrors every repo from a GitHub user/org onto a Dig
 - [ ] **PROV-02**: `npm run bootstrap-droplet` installs apt deps, gh CLI, cron job, webhook listener
 - [ ] **BACKUP-01**: Cron sweep mirrors all repos from configured sources on schedule (safety net)
 - [ ] **BACKUP-02**: New repos cloned with `git clone --mirror`, known repos refreshed with `git remote update`
+- [ ] **REPOS-01**: Config supports per-source repo allow-list and deny-list (glob patterns); deny wins
 - [ ] **WEBHOOK-01**: Public HTTPS endpoint on droplet authenticates GitHub push events via shared-secret HMAC
 - [ ] **WEBHOOK-02**: Authenticated push event triggers per-repo mirror update within seconds
 - [ ] **ACCESS-01**: Any standard `git clone` over SSH works against bare mirrors
@@ -45,6 +46,8 @@ Fire-and-forget system that mirrors every repo from a GitHub user/org onto a Dig
 - Pull request, issue, wiki backup — git refs only
 - Backup encryption at rest beyond filesystem perms — single-tenant droplet
 - Automated droplet teardown — manual DO-dashboard removal is the documented teardown path
+- Non-root SSH user — root SSH accepted at single-operator scale; non-root deferred to v2
+- Disk-full auto-pruning / alerting — beyond MON-03 usage report, deferred to v2
 
 ## Key Decisions
 
@@ -57,6 +60,11 @@ Fire-and-forget system that mirrors every repo from a GitHub user/org onto a Dig
 | `GITHUB_TOKEN` env-only, never in config.json | Avoid accidental commit | — Pending |
 | Webhook + cron hybrid (webhook primary, cron safety net) | Low-latency on push, periodic sweep catches deletes / missed deliveries / idle repos | — Pending (added 2026-05-11) |
 | No automated droplet teardown | Manual DO-dashboard removal is rare enough; scripted destroy is overhead | — Pending (added 2026-05-11) |
+| Webhook TLS via Caddy + Let's Encrypt | Free, auto-renew, GitHub-compatible cert; operator burden = one DNS A record | — Pending (Phase 3, added 2026-05-11) |
+| Operator provides DNS record before bootstrap | LE needs FQDN; alternatives (self-signed, plain HTTP) weaken HMAC-only auth | — Pending (Phase 3, added 2026-05-11) |
+| Per-repo allow/deny via glob lists | Operators often want a subset of an org's repos; whole-org sync is rarely desired | — Pending (Phase 6, added 2026-05-11) |
+| Webhook listener ships before multi-source | Core value is "push → near-instant sync"; demoable MVP earlier | — Pending (added 2026-05-11) |
+| Root SSH for bootstrap and ops | Single-operator scale; non-root user deferred to v2 | — Accepted (2026-05-11) |
 
 ## Evolution
 
@@ -76,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 — webhook hybrid added, automated teardown removed.*
+*Last updated: 2026-05-11 — Option B reorder (webhook moved to Phase 3); Caddy+LE TLS, DNS, REPOS-01, root SSH decisions logged.*
