@@ -6,9 +6,9 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 
 ### Droplet scripts (missing artifacts)
 
-- [ ] **DROPLET-01**: Operator-triggered backup completes because `droplet/sync-one-repo.sh` exists on the droplet, is executable, and implements the per-repo clone/update contract (D-07 namespaced layout, `git clone --mirror` for new repos, `git remote update` for existing, per-repo `flock` on fd 8).
-- [ ] **DROPLET-02**: `github-backup.sh` source-loads `droplet/lib/detect-account-type.sh` successfully and the helper resolves a source slug to `User` or `Organization` (default `User`) without aborting under `set -e`.
-- [ ] **DROPLET-03**: `github-backup.sh` source-loads `droplet/lib/filter-repos.sh` successfully and the helper applies REPOS-01 allow/deny glob semantics (deny wins) for every iterated repo.
+- [x] **DROPLET-01**: Operator-triggered backup completes because `droplet/sync-one-repo.sh` exists on the droplet, is executable, and implements the per-repo clone/update contract (D-07 namespaced layout, `git clone --mirror` for new repos, `git remote update` for existing, per-repo `flock` on fd 8).
+- [x] **DROPLET-02**: `github-backup.sh` source-loads `droplet/lib/detect-account-type.sh` successfully and the helper resolves a source slug to `User` or `Organization` (default `User`) without aborting under `set -e`.
+- [x] **DROPLET-03**: `github-backup.sh` source-loads `droplet/lib/filter-repos.sh` successfully and the helper applies REPOS-01 allow/deny glob semantics (deny wins) for every iterated repo.
 
 ### Bootstrap manifest hardening
 

@@ -47,7 +47,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   4. Running the cron path manually on a freshly-bootstrapped droplet mirrors at least one real repo end-to-end without an unbound-variable / command-not-found error.
 
 **Plans**: 1 plan
-- [ ] 07-01-PLAN.md — Verify DROPLET-01/02/03 contracts via new scripts/verify/phase-7.ts on live droplet
+- [x] 07-01-PLAN.md — Verify DROPLET-01/02/03 contracts via new scripts/verify/phase-7.ts on live droplet
 
 ---
 

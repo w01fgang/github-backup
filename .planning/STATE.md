@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production hardening
-status: executing
-last_updated: "2026-05-16T14:51:16.779Z"
-last_activity: 2026-05-16 -- Phase 07 planning complete
+status: verifying
+last_updated: "2026-05-16T14:58:13.040Z"
+last_activity: 2026-05-16
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 1
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 100
 ---
 
 # State
@@ -22,10 +22,10 @@ progress:
 
 ## Current Position
 
-Phase: 7 (Droplet artifact shipping) — context gathered
-Plan: —
-Status: Ready to execute
-Last activity: 2026-05-16 -- Phase 07 planning complete
+Phase: 07 (droplet-artifact-shipping) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-05-16
 
 ### v1.1 phase map
 
@@ -61,6 +61,7 @@ v1.1 roadmap decisions (2026-05-16):
 - **Phase 7 before Phase 9**: WEBHOOK-04 sources `droplet/lib/filter-repos.sh`; that file must land on the droplet (DROPLET-03) before the listener can load it. Hard ordering, not preference.
 - **Phase 8 before Phase 9**: not strictly required for compile, but logical — once Phase 7 ships the artifacts, Phase 8 makes them mandatory in the uploader, so by the time Phase 9 ships new droplet files the manifest enforcement catches gaps.
 - **Phase 10 last**: live-droplet UAT only makes sense once 7+8+9 are deployable; closing UAT before bug fixes would re-open the same gaps.
+- **Phase 7 plan 01 (2026-05-16)**: standalone `scripts/verify/phase-7.ts` reusing `scripts/lib/ssh.ts` + `scripts/lib/config.ts` only — no new SSH wrapper and no shared verify-helpers module (D-01/D-04/D-09). SC#4 e2e gate is operator-run against a freshly-bootstrapped droplet.
 
 ## Deferred Items
 
