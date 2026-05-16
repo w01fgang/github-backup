@@ -2,6 +2,7 @@
 created: 2026-05-16T02:53:26.145Z
 title: Missing Phase-6 lib helpers break source detection
 area: tooling
+resolves_phase: 7
 files:
   - droplet/github-backup.sh:101
   - droplet/github-backup.sh:103

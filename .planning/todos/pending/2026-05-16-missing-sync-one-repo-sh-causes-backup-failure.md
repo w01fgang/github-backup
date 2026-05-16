@@ -2,6 +2,7 @@
 created: 2026-05-16T02:53:26.145Z
 title: Missing sync-one-repo.sh causes backup failure
 area: tooling
+resolves_phase: 7
 files:
   - scripts/bootstrap-droplet.ts:289
   - droplet/bootstrap.sh:155

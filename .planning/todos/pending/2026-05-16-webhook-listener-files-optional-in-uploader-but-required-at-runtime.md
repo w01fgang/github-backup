@@ -2,6 +2,7 @@
 created: 2026-05-16T02:53:26.145Z
 title: Webhook listener files optional in uploader but required at runtime
 area: tooling
+resolves_phase: 8
 files:
   - scripts/bootstrap-droplet.ts:292
   - droplet/bootstrap.sh:202
