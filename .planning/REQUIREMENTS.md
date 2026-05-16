@@ -47,22 +47,22 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 
 ## Traceability
 
-*(Phase mapping filled in by roadmapper.)*
-
 | REQ-ID | Phase |
 |--------|-------|
-| DROPLET-01 | — |
-| DROPLET-02 | — |
-| DROPLET-03 | — |
-| MANIFEST-01 | — |
-| MANIFEST-02 | — |
-| MANIFEST-03 | — |
-| WEBHOOK-03 | — |
-| WEBHOOK-04 | — |
-| VALID-01 | — |
-| VALID-02 | — |
-| VALID-03 | — |
-| VALID-04 | — |
+| DROPLET-01 | 7 — Droplet artifact shipping |
+| DROPLET-02 | 7 — Droplet artifact shipping |
+| DROPLET-03 | 7 — Droplet artifact shipping |
+| MANIFEST-01 | 8 — Bootstrap uploader hardening |
+| MANIFEST-02 | 8 — Bootstrap uploader hardening |
+| MANIFEST-03 | 8 — Bootstrap uploader hardening |
+| WEBHOOK-03 | 9 — Webhook multi-source + filter parity |
+| WEBHOOK-04 | 9 — Webhook multi-source + filter parity |
+| VALID-01 | 10 — Live-droplet UAT close-out |
+| VALID-02 | 10 — Live-droplet UAT close-out |
+| VALID-03 | 10 — Live-droplet UAT close-out |
+| VALID-04 | 9 — Webhook multi-source + filter parity |
+
+Coverage: 12/12 requirements mapped, no orphans, no duplicates.
 
 ---
-*Last updated: 2026-05-16 — v1.1 milestone start*
+*Last updated: 2026-05-16 — v1.1 roadmap drafted (Phases 7-10)*
