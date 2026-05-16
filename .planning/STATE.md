@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-last_updated: "2026-05-15T04:03:16.646Z"
+status: Awaiting next milestone
+last_updated: "2026-05-16T03:24:18.285Z"
+last_activity: 2026-05-16 — Milestone v1.0 completed and archived
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 19
-  completed_plans: 16
-  percent: 84
+  completed_plans: 19
+  percent: 100
 ---
 
 # State
@@ -21,12 +22,10 @@ progress:
 
 ## Current Position
 
-Phase: 06 (multi-source) — EXECUTED
-Plan: 3 of 3 complete
-
-- Milestone: v1
-- Phase: 1 (Verify pipeline) — 3 plans coded; NR-01..09 fixes applied from review iter3
-- Roadmap reordered 2026-05-11 (Option B): webhook listener moved to Phase 3 to ship core "push → near-instant sync" value earlier; restore → 4, idempotency → 5, multi-source+REPOS-01 → 6
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-16 — Milestone v1.0 completed and archived
 
 ### Phase dir → roadmap-number mapping
 
@@ -53,6 +52,23 @@ Recent additions (2026-05-11):
 - Per-repo allow/deny globs (REPOS-01) added to Phase 6
 - Root SSH accepted for v1; non-root deferred to v2
 
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-05-16:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | Missing sync-one-repo.sh causes backup failure | deferred |
+| todo | Missing Phase-6 lib helpers break source detection | deferred |
+| todo | Webhook listener files optional in uploader but required at runtime | deferred |
+| uat_gap | Phase 01: 8 pending UAT scenarios | deferred |
+| uat_gap | Phase 03: 6 pending UAT scenarios | deferred |
+| uat_gap | Phase 04: 4 pending UAT scenarios | deferred |
+| verification_gap | Phase 03: VERIFICATION.md human_needed | deferred |
+| verification_gap | Phase 04: VERIFICATION.md human_needed | deferred |
+
+Known deferred items at close: 8 (see above)
+
 ## Blockers
 
 (none)
@@ -73,6 +89,7 @@ Recent additions (2026-05-11):
 ## Accumulated Context
 
 ### Pending Todos
+
 - **Missing sync-one-repo.sh** — `github-backup.sh:280` calls it; bootstrap never uploads it. Created 2026-05-16.
 - **Missing Phase-6 lib helpers** — `detect-account-type.sh` + `filter-repos.sh` sourced but absent from `droplet/lib/`. Created 2026-05-16.
 - **Webhook files optional in uploader** — `bootstrap.sh:202` hard-fails if missing; uploader silently skips. Created 2026-05-16.
@@ -80,3 +97,7 @@ Recent additions (2026-05-11):
 ## Plan-checker notes (Phase 1, non-blocking)
 
 5 quality refinements flagged (4 LOW, 1 MED), no blockers. See `.planning/phases/01-verify-pipeline/` plan files. MED issue (#4): smoke-test step 8 duplicates `gh api` user-vs-org logic from `droplet/github-backup.sh` — single-source safe for Phase 1, revisit at Phase 6 (multi-source).
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
