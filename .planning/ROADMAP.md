@@ -46,7 +46,8 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   3. `github-backup.sh` source-loads `droplet/lib/filter-repos.sh` under `set -e` without aborting; for every iterated repo the helper applies REPOS-01 allow/deny glob semantics with deny winning on conflict and empty allow meaning "all".
   4. Running the cron path manually on a freshly-bootstrapped droplet mirrors at least one real repo end-to-end without an unbound-variable / command-not-found error.
 
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 07-01-PLAN.md — Verify DROPLET-01/02/03 contracts via new scripts/verify/phase-7.ts on live droplet
 
 ---
 
