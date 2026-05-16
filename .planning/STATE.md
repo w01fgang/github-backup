@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production hardening
-status: verifying
+status: ready_to_plan
 last_updated: "2026-05-16T14:58:13.040Z"
 last_activity: 2026-05-16
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 1
   completed_plans: 1
-  percent: 100
+  percent: 50
 ---
 
 # State
@@ -22,9 +22,9 @@ progress:
 
 ## Current Position
 
-Phase: 07 (droplet-artifact-shipping) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Phase: 8
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-16
 
 ### v1.1 phase map

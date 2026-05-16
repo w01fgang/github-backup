@@ -23,7 +23,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 
 ### v1.1 Production hardening
 
-- [ ] **Phase 7: Droplet artifact shipping** — Ship the three missing droplet scripts (`sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh`) so `github-backup.sh` runs end-to-end on the droplet
+- [x] **Phase 7: Droplet artifact shipping** — Ship the three missing droplet scripts (`sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh`) so `github-backup.sh` runs end-to-end on the droplet (completed 2026-05-16)
 - [ ] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest; `scripts/create-droplet.ts` reconciles outbound firewall rules (parity with inbound) so operator-edited drift is repaired on next run
 - [ ] **Phase 9: Webhook multi-source + filter parity** — `webhook-listener.js` routes events for any `GITHUB_SOURCES` owner and applies `filter-repos.sh` deny-wins before dispatch; `verify:phase-3` asserts both
 - [ ] **Phase 10: Live-droplet UAT close-out** — Outstanding Phase 01/03/04 human UAT scenarios and Phase 03/04 VERIFICATION.md human-needed items closed against a live droplet
@@ -117,7 +117,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 | 4. Restore | v1.0 | 3/3 | Complete | 2026-05-13 |
 | 5. Bootstrap idempotency | v1.0 | 2/2 | Complete | 2026-05-15 |
 | 6. Multi-source + per-repo filtering | v1.0 | 3/3 | Complete | 2026-05-15 |
-| 7. Droplet artifact shipping | v1.1 | 0/? | Not started | — |
+| 7. Droplet artifact shipping | v1.1 | 1/1 | Complete    | 2026-05-16 |
 | 8. Bootstrap uploader hardening | v1.1 | 0/? | Not started | — |
 | 9. Webhook multi-source + filter parity | v1.1 | 0/? | Not started | — |
 | 10. Live-droplet UAT close-out | v1.1 | 0/? | Not started | — |
