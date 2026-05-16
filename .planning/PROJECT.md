@@ -12,6 +12,19 @@ Fire-and-forget system that mirrors every repo from one or more GitHub users/org
 
 Shipped v1.0 (2026-05-16). 6 phases, 19 plans across pipeline verification, monitoring, webhook listener, restore, bootstrap idempotency, and multi-source support.
 
+## Current Milestone: v1.1 Production hardening
+
+**Goal:** Close runtime-critical droplet bugs, webhook multi-source gaps, and outstanding UAT/verification so v1.0 actually works end-to-end on a live droplet.
+
+**Target features:**
+- Missing droplet scripts: `sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh` shipped + uploaded
+- Webhook file upload/validation mismatch resolved (mandatory manifest, fail-loud pre-flight)
+- `webhook-listener.js` multi-source routing (GITHUB_SOURCES-aware, no 404 for source #2)
+- Webhook path REPOS-01 filtering (deny-wins applies to webhook events)
+- Live-droplet human UAT closed for Phases 01, 03, 04
+- VERIFICATION human_needed closed for Phases 03, 04
+
+
 - Tech: Node ≥18 + tsx, `doctl`, `gh` CLI, bash on Ubuntu 22.04, cron, Caddy, systemd, SSH.
 - Single-droplet design — small ops surface, low cost (s-1vcpu-1gb).
 - Sync triggers: GitHub push webhooks (primary, low-latency) + nightly cron sweep (safety net).
@@ -47,9 +60,9 @@ Shipped v1.0 (2026-05-16). 6 phases, 19 plans across pipeline verification, moni
 
 ### Active
 
-*(Next milestone requirements to be defined via `/gsd-new-milestone`)*
+*(v1.1 milestone — requirements detailed in REQUIREMENTS.md)*
 
-- [ ] Fix 3 runtime-critical deferred items before v1.1 (missing droplet scripts)
+- [ ] Fix 3 runtime-critical deferred items (missing droplet scripts)
 - [ ] Complete live-droplet human UAT for Phases 01, 03, 04
 - [ ] Multi-source webhook routing (events for source #2 currently 404)
 - [ ] Webhook path REPOS-01 filtering (`filter-repos.sh` not sourced in webhook handler)
@@ -81,5 +94,22 @@ Shipped v1.0 (2026-05-16). 6 phases, 19 plans across pipeline verification, moni
 | Root SSH for bootstrap and ops | Single-operator scale; non-root user deferred to v2 | ✓ Good |
 | Namespaced mirror paths `/opt/github-backups/<owner>/<owner>_<repo>.git` | Required for multi-source isolation | ✓ Good |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-05-16 after v1.0 milestone*
+*Last updated: 2026-05-16 — v1.1 Production hardening started*
