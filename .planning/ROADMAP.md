@@ -24,7 +24,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 ### v1.1 Production hardening
 
 - [ ] **Phase 7: Droplet artifact shipping** — Ship the three missing droplet scripts (`sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh`) so `github-backup.sh` runs end-to-end on the droplet
-- [ ] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest
+- [ ] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest; `scripts/create-droplet.ts` reconciles outbound firewall rules (parity with inbound) so operator-edited drift is repaired on next run
 - [ ] **Phase 9: Webhook multi-source + filter parity** — `webhook-listener.js` routes events for any `GITHUB_SOURCES` owner and applies `filter-repos.sh` deny-wins before dispatch; `verify:phase-3` asserts both
 - [ ] **Phase 10: Live-droplet UAT close-out** — Outstanding Phase 01/03/04 human UAT scenarios and Phase 03/04 VERIFICATION.md human-needed items closed against a live droplet
 
@@ -53,17 +53,19 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 
 ### Phase 8: Bootstrap uploader hardening
 
-**Goal**: `scripts/bootstrap-droplet.ts` cannot silently skip a droplet artifact that `droplet/bootstrap.sh` later hard-fails on; operators see the missing-file error locally before any SSH connection.
+**Goal**: `scripts/bootstrap-droplet.ts` cannot silently skip a droplet artifact that `droplet/bootstrap.sh` later hard-fails on; operators see the missing-file error locally before any SSH connection. Additionally, `scripts/create-droplet.ts` reconciles outbound firewall rules so operator-edited drift (e.g. accidentally deleting outbound `TCP/all` + `UDP/all` in the DO console) is detected and repaired on the next run — preventing the silent-`git clone`-failure mode discovered in Phase 7 validation.
 
 **Depends on**: Phase 7 (manifest must enumerate the artifacts Phase 7 ships)
 
-**Requirements**: MANIFEST-01, MANIFEST-02, MANIFEST-03
+**Requirements**: MANIFEST-01, MANIFEST-02, MANIFEST-03, FIREWALL-01, FIREWALL-02
 
 **Success Criteria** (what must be TRUE):
   1. `scripts/bootstrap-droplet.ts` declares an explicit required-file manifest covering every artifact in `droplet/` and `droplet/lib/` that the droplet-side scripts source or exec.
   2. Running `npm run bootstrap-droplet` with any required file deleted exits non-zero with a clear "missing required artifact: <path>" message **before** opening an SSH session.
   3. The webhook trio (`webhook-listener.js`, `Caddyfile.template`, `github-backup-webhook.service`) is treated as mandatory by the uploader — removing any of the three triggers the same pre-flight failure rather than silently skipping the upload (which `droplet/bootstrap.sh:202-208` would then hard-fail on).
   4. README has a "Droplet file manifest" section that lists every required file, its purpose, and the phase that owns it.
+  5. `scripts/create-droplet.ts` reconciles **outbound** rules with the same drift-detection it already applies to inbound (lines 153-200): on `npm run create-droplet` against an existing firewall whose outbound rules have been edited away, the script restores the canonical `TCP/all + UDP/all + ICMP/all` outbound set and logs `+ Adding outbound rule: …` for each restored entry. Re-running with the canonical set already present logs `✓ Rule already present: …` and makes zero `doctl add-rules` calls.
+  6. README documents the complete firewall ruleset (inbound TCP 22 from `allowedSSHCidr`, TCP 80 + TCP 443 from world; outbound TCP/UDP/ICMP unrestricted to world) and instructs operators to re-run `npm run create-droplet` to repair drift.
 
 **Plans**: TBD
 
