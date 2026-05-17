@@ -350,6 +350,46 @@ async function main(): Promise<void> {
     assert(r.status === 200, "ping after restart returns 200");
   }
 
+  // ── Group 7: Multi-source routing (WEBHOOK-03 regression) ─────────────
+  console.log("\n── Group 7: Multi-source routing");
+  if (cfg.sources.length < 2) {
+    console.log(
+      `[skip] WEBHOOK-03 multi-source assertion needs ≥2 sources in ` +
+        `config.json; only ${cfg.sources.length} configured. Regression ` +
+        `cannot be exercised in this environment.`
+    );
+  } else {
+    const probeRepo = "verify-phase-3-multi-source-probe";
+    for (const s of cfg.sources) {
+      const body = syntheticPushPayload(s.name, probeRepo);
+      const sig = signPayload(body, secret);
+      const r = await postWebhook(cfg.webhookHostname, body, {
+        "X-GitHub-Event": "push",
+        "X-GitHub-Delivery": makeDelivery(),
+        "X-Hub-Signature-256": sig,
+        "User-Agent": "GitHub-Hookshot/test",
+      });
+      assert(
+        r.status >= 200 && r.status < 300,
+        `source "${s.name}" accepted (got ${r.status}, want 2xx)`
+      );
+
+      const eventJson = sshCapture(
+        cfg,
+        droplet,
+        "cat /var/lib/github-backup/last-webhook-event.json"
+      ).trim();
+      const ev = JSON.parse(eventJson) as {
+        source?: string;
+        owner?: string;
+      };
+      assert(
+        ev.source === s.name && ev.owner === s.name,
+        `last-webhook-event.json source+owner == "${s.name}" (got source="${ev.source}" owner="${ev.owner}")`
+      );
+    }
+  }
+
   console.log("\n✅  All assertions passed.");
 }
 
