@@ -43,6 +43,99 @@ interface FirewallRecord {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 8 (D-10..D-12): direction-aware firewall reconcile helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RuleEndpoint {
+  addresses?: string[];
+}
+interface InboundRule {
+  protocol: string;
+  ports: string;
+  sources?: RuleEndpoint;
+}
+interface OutboundRule {
+  protocol: string;
+  ports: string;
+  destinations?: RuleEndpoint;
+}
+interface FirewallDetail extends FirewallRecord {
+  inbound_rules?: InboundRule[];
+  outbound_rules?: OutboundRule[];
+}
+
+type Direction = "inbound" | "outbound";
+
+interface ExpectedRule {
+  protocol: string; // "tcp" | "udp" | "icmp"
+  ports: string; // "22" | "all" | "" (icmp has no ports — pass "" and skip ports compare)
+  /** Comma-separated CIDR list, e.g. "0.0.0.0/0,::/0". Order-insensitive. */
+  endpoints: string;
+}
+
+/**
+ * Treat `::/0` and `0:0:0:0:0:0:0:0/0` as equivalent — doctl emits the long
+ * form for outbound destinations but the short form for inbound sources.
+ */
+function normalizeCidr(addr: string): string {
+  return addr === "0:0:0:0:0:0:0:0/0" ? "::/0" : addr;
+}
+
+/**
+ * Strict canonical-only reconcile (D-10):
+ *   - Add any missing canonical rule.
+ *   - Leave operator-added extras untouched (no removal).
+ *
+ * Direction-aware: emits `--inbound-rules`/`--outbound-rules` and reads
+ * `sources.addresses`/`destinations.addresses` based on `direction`.
+ * Log lines carry a `[inbound]` or `[outbound]` prefix (D-12), e.g.:
+ *     `   ✓ [inbound] Rule already present: tcp/22 from <cidr>`
+ *     `   + [inbound] Adding rule: tcp/80 from 0.0.0.0/0,::/0`
+ */
+function reconcileRules(
+  direction: Direction,
+  firewallId: string,
+  expected: ExpectedRule[],
+  present: (InboundRule | OutboundRule)[]
+): void {
+  const flag = direction === "inbound" ? "--inbound-rules" : "--outbound-rules";
+  const fromOrTo = direction === "inbound" ? "from" : "to";
+  const endpointKw =
+    direction === "inbound" ? "sources:addresses" : "destinations:addresses";
+  for (const r of expected) {
+    const expectedSet = new Set(r.endpoints.split(",").map(normalizeCidr));
+    const match = present.find((p) => {
+      const endpoint =
+        direction === "inbound"
+          ? (p as InboundRule).sources?.addresses ?? []
+          : (p as OutboundRule).destinations?.addresses ?? [];
+      const normalised = endpoint.map(normalizeCidr);
+      if (p.protocol !== r.protocol) return false;
+      // icmp has no ports in expected; doctl emits empty string.
+      if (r.ports !== "" && p.ports !== r.ports) return false;
+      if (normalised.length !== expectedSet.size) return false;
+      return normalised.every((a) => expectedSet.has(a));
+    });
+    const portsLabel = r.ports === "" ? "" : `/${r.ports}`;
+    if (match) {
+      console.log(
+        `   ✓ [${direction}] Rule already present: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
+      );
+    } else {
+      console.log(
+        `   + [${direction}] Adding rule: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
+      );
+      const portsPart = r.ports === "" ? "" : `,ports:${r.ports}`;
+      runCapture(
+        `doctl compute firewall add-rules ${firewallId} ` +
+          `${flag} "protocol:${r.protocol}${portsPart},${endpointKw}:${r.endpoints}"`
+      );
+    }
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Droplet
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -150,54 +243,15 @@ function findOrCreateFirewall(cfg: Config): string {
     // brings an older Phase 1 firewall up to spec without churning the
     // droplet (D-24). PROV-01 idempotency: a firewall already carrying all
     // three rules produces ZERO add-rules calls.
-    const expected: Array<{
-      protocol: "tcp";
-      ports: string;
-      sources: string;
-    }> = [
-      { protocol: "tcp", ports: "22", sources: cfg.allowedSSHCidr },
-      { protocol: "tcp", ports: "80", sources: "0.0.0.0/0,::/0" },
-      { protocol: "tcp", ports: "443", sources: "0.0.0.0/0,::/0" },
+    const expectedInbound: ExpectedRule[] = [
+      { protocol: "tcp", ports: "22", endpoints: cfg.allowedSSHCidr },
+      { protocol: "tcp", ports: "80", endpoints: "0.0.0.0/0,::/0" },
+      { protocol: "tcp", ports: "443", endpoints: "0.0.0.0/0,::/0" },
     ];
-    interface InboundRule {
-      protocol: string;
-      ports: string;
-      sources?: { addresses?: string[] };
-    }
-    interface FirewallDetail extends FirewallRecord {
-      inbound_rules?: InboundRule[];
-    }
     const detail = first<FirewallDetail>(
       `doctl compute firewall get ${existing.id} --output json`
     );
-    const present = detail.inbound_rules ?? [];
-    for (const r of expected) {
-      const expectedSources = new Set(r.sources.split(","));
-      const match = present.find((p) => {
-        const addrs = p.sources?.addresses ?? [];
-        if (
-          p.protocol !== r.protocol ||
-          p.ports !== r.ports ||
-          addrs.length !== expectedSources.size
-        ) {
-          return false;
-        }
-        return addrs.every((a) => expectedSources.has(a));
-      });
-      if (match) {
-        console.log(
-          `   ✓ Rule already present: ${r.protocol}/${r.ports} from ${r.sources}`
-        );
-      } else {
-        console.log(
-          `   + Adding rule: ${r.protocol}/${r.ports} from ${r.sources}`
-        );
-        runCapture(
-          `doctl compute firewall add-rules ${existing.id} ` +
-            `--inbound-rules "protocol:${r.protocol},ports:${r.ports},sources:addresses:${r.sources}"`
-        );
-      }
-    }
+    reconcileRules("inbound", existing.id, expectedInbound, detail.inbound_rules ?? []);
     return existing.id;
   }
 
