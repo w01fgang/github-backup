@@ -4,6 +4,7 @@
   "description": "Fire-and-forget GitHub repository mirror backup to a DigitalOcean droplet.",
   "private": true,
   "scripts": {
+    "prepare": "node -e \"const fs=require('fs'),p=require('path'); const src=p.resolve('scripts/git-hooks/pre-commit'); const dst=p.resolve('.git/hooks/pre-commit'); if (!fs.existsSync('.git') || !fs.existsSync(src)) process.exit(0); fs.copyFileSync(src, dst); fs.chmodSync(dst, 0o755); console.log('✓ installed .git/hooks/pre-commit');\"",
     "create-droplet": "tsx scripts/create-droplet.ts",
     "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts",
     "smoke-test": "tsx scripts/smoke-test.ts",
