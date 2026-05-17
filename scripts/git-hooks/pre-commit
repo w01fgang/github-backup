@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# scripts/git-hooks/pre-commit
+#
+# Phase 8 (MANIFEST-03 / D-07 / D-08): enforce that README.md's
+# droplet-manifest managed section is in sync with scripts/lib/droplet-manifest.ts
+# before the commit lands locally. The CI workflow (.github/workflows/sync-check.yml)
+# catches --no-verify bypasses.
+#
+# Installation: `npm install` triggers the `prepare` script which copies this
+# file to .git/hooks/pre-commit and chmods +x.
+#
+# Skips silently if scripts/sync-readme-manifest.ts is not present (e.g. checking
+# out a branch that pre-dates Phase 8) — don't break commits on legacy branches.
+
+set -euo pipefail
+
+if [ ! -f scripts/sync-readme-manifest.ts ]; then
+  exit 0
+fi
+
+if ! npx --no-install tsx scripts/sync-readme-manifest.ts --check; then
+  echo "error: README.md droplet-manifest section is stale; run 'npm run sync:readme' and re-stage" >&2
+  exit 1
+fi
