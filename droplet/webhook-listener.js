@@ -2,8 +2,11 @@
 // droplet/webhook-listener.js
 //
 // Tiny HTTPS-handler (behind Caddy) for GitHub push webhooks.
-// Single-operator, single-source at v1. See
-// .planning/phases/03-webhook/03-CONTEXT.md for the full design (D-01 ─ D-13, D-17).
+// Multi-source (Phase 9): owner must be in GITHUB_SOURCES from
+// /opt/github-backups/backup.env (re-read per request). See
+// .planning/phases/03-webhook/03-CONTEXT.md for the v1 design (D-01 ─ D-13, D-17)
+// and .planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md for the
+// multi-source rescope (D-01 ─ D-05, WEBHOOK-04 dropped 2026-05-17).
 //
 // HTTP contract:
 //   POST /webhook/github
@@ -14,16 +17,18 @@
 //     204                 — non-push, non-ping event acknowledged
 //     400                 — missing signature, bad JSON, missing owner/repo
 //     401                 — HMAC mismatch
-//     404                 — source not in cfg (owner mismatch) OR unknown path
+//     404                 — owner not in GITHUB_SOURCES OR unknown path
 //     405                 — method other than POST on /webhook/github
-//     500                 — systemd-run dispatch failure
+//     500                 — backup.env unreadable OR systemd-run dispatch failure
 //
 // Env (from systemd EnvironmentFile=/opt/github-backups/backup.env):
-//   WEBHOOK_SECRET        required (single source at v1)
-//   GITHUB_USER_OR_ORG    required (the allowed source for v1)
+//   WEBHOOK_SECRET        required (HMAC verification)
 //   BACKUP_DIR            default /opt/github-backups
 //   WEBHOOK_LISTEN_PORT   default 9100
 //   WEBHOOK_STATE_DIR     default /var/lib/github-backup
+//
+// Per-request read from /opt/github-backups/backup.env:
+//   GITHUB_SOURCES        whitespace-separated set of allowed owner logins.
 //
 // Output:
 //   stdout/stderr → systemd journal (journalctl -u github-backup-webhook).
@@ -42,14 +47,49 @@ function bail(msg) {
   process.exit(1);
 }
 
+/**
+ * Per-request env reader. Parses /opt/github-backups/backup.env (or any
+ * file in the same format produced by scripts/bootstrap-droplet.ts:80-107).
+ *
+ * NOTE: Deliberately diverges from the boot-only loading style used for
+ * WEBHOOK_SECRET / PORT below — D-01 calls for per-request re-read of
+ * GITHUB_SOURCES so an operator regenerating backup.env via
+ * `npm run bootstrap-droplet` does not need to restart this service.
+ *
+ * Handles: K=V (bare), K="V V" (strips exactly one leading + one trailing
+ * double-quote), blank lines, # comments. No escape sequences. No single
+ * quotes. No `export` prefix. Throws on read/parse error.
+ */
+function parseEnvFile(filePath) {
+  const raw = fs.readFileSync(filePath, "utf8");
+  const out = {};
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue; // skip malformed lines silently — bootstrap output won't produce them
+    const key = line.slice(0, eq);
+    let val = line.slice(eq + 1);
+    if (
+      val.length >= 2 &&
+      val.charCodeAt(0) === 34 && // "
+      val.charCodeAt(val.length - 1) === 34
+    ) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
+const BACKUP_ENV_PATH = "/opt/github-backups/backup.env";
+
 const SECRET = (process.env.WEBHOOK_SECRET || "").trim();
-const ALLOWED_SOURCE = (process.env.GITHUB_USER_OR_ORG || "").trim();
 const PORT = parseInt(process.env.WEBHOOK_LISTEN_PORT || "9100", 10);
 const BACKUP_DIR = process.env.BACKUP_DIR || "/opt/github-backups";
 const STATE_DIR = process.env.WEBHOOK_STATE_DIR || "/var/lib/github-backup";
 
 if (!SECRET) bail("WEBHOOK_SECRET not set (load /opt/github-backups/backup.env)");
-if (!ALLOWED_SOURCE) bail("GITHUB_USER_OR_ORG not set");
 if (!Number.isFinite(PORT)) {
   bail(`WEBHOOK_LISTEN_PORT not a number: ${process.env.WEBHOOK_LISTEN_PORT}`);
 }
@@ -151,7 +191,21 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    if (owner !== ALLOWED_SOURCE) {
+    let allowedSources;
+    try {
+      const env = parseEnvFile(BACKUP_ENV_PATH);
+      const raw = env.GITHUB_SOURCES || "";
+      allowedSources = new Set(raw.split(/\s+/).filter(Boolean));
+      if (allowedSources.size === 0) {
+        throw new Error("GITHUB_SOURCES empty or missing in backup.env");
+      }
+    } catch (e) {
+      res.writeHead(500).end();
+      logLine(req, 500, { delivery, reason: "backup_env_unreadable" });
+      return;
+    }
+
+    if (!allowedSources.has(owner)) {
       res.writeHead(404).end();
       logLine(req, 404, { delivery, owner, reason: "unknown_source" });
       return;
@@ -218,6 +272,6 @@ process.on("unhandledRejection", (e) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   process.stdout.write(
-    `[${new Date().toISOString()}] webhook-listener up on 127.0.0.1:${PORT} (source=${ALLOWED_SOURCE})\n`
+    `[${new Date().toISOString()}] webhook-listener up on 127.0.0.1:${PORT} (env=${BACKUP_ENV_PATH})\n`
   );
 });
