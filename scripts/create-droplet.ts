@@ -252,6 +252,17 @@ function findOrCreateFirewall(cfg: Config): string {
       `doctl compute firewall get ${existing.id} --output json`
     );
     reconcileRules("inbound", existing.id, expectedInbound, detail.inbound_rules ?? []);
+
+    // ─── Phase 8 FIREWALL-01 (D-10): outbound reconcile (strict canonical) ──
+    // Add any missing canonical rule; leave operator-added extras untouched.
+    // Reuses the `detail` fetched above — no second `doctl get` call.
+    const expectedOutbound: ExpectedRule[] = [
+      { protocol: "tcp", ports: "all", endpoints: "0.0.0.0/0,::/0" },
+      { protocol: "udp", ports: "all", endpoints: "0.0.0.0/0,::/0" },
+      { protocol: "icmp", ports: "", endpoints: "0.0.0.0/0,::/0" },
+    ];
+    reconcileRules("outbound", existing.id, expectedOutbound, detail.outbound_rules ?? []);
+
     return existing.id;
   }
 
