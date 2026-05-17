@@ -17,7 +17,9 @@
     "verify:phase-3": "tsx scripts/verify/phase-3.ts",
     "migrate-mirrors": "tsx scripts/migrate-mirrors.ts",
     "verify:phase-6": "tsx scripts/verify/phase-6.ts",
-    "verify:phase-7": "tsx scripts/verify/phase-7.ts"
+    "verify:phase-7": "tsx scripts/verify/phase-7.ts",
+    "sync:readme": "tsx scripts/sync-readme-manifest.ts",
+    "check:readme": "tsx scripts/sync-readme-manifest.ts -- --check"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
