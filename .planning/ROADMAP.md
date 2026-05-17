@@ -25,7 +25,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 
 - [x] **Phase 7: Droplet artifact shipping** — Ship the three missing droplet scripts (`sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh`) so `github-backup.sh` runs end-to-end on the droplet (completed 2026-05-16)
 - [x] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest; `scripts/create-droplet.ts` reconciles outbound firewall rules (parity with inbound) so operator-edited drift is repaired on next run (completed 2026-05-17)
-- [ ] **Phase 9: Webhook multi-source + filter parity** — `webhook-listener.js` routes events for any `GITHUB_SOURCES` owner and applies `filter-repos.sh` deny-wins before dispatch; `verify:phase-3` asserts both
+- [x] **Phase 9: Webhook multi-source + filter parity** — `webhook-listener.js` routes events for any `GITHUB_SOURCES` owner via per-request re-read of `backup.env`; `verify:phase-3` Group 7 asserts multi-source routing for every configured source (WEBHOOK-04 dropped 2026-05-17 — per-repo webhook = explicit operator consent)
 - [ ] **Phase 10: Live-droplet UAT close-out** — Outstanding Phase 01/03/04 human UAT scenarios and Phase 03/04 VERIFICATION.md human-needed items closed against a live droplet
 
 ---
@@ -89,7 +89,9 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   3. Existing WEBHOOK-01 / WEBHOOK-02 success criteria still pass against the modified listener (HMAC auth, per-repo sync within seconds).
   4. *(Dropped 2026-05-17.)* The earlier SC#2 / SC#3 assertions about filter-on-webhook-path were retired with WEBHOOK-04 — per-repo webhook configuration is treated as explicit operator consent. See `.planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md` §"Deferred Ideas".
 
-**Plans**: TBD
+**Plans**: 2 plans
+- [x] 09-01-PLAN.md — Multi-source webhook listener with per-request env re-read (WEBHOOK-03)
+- [x] 09-02-PLAN.md — verify:phase-3 Group 7 multi-source routing regression (VALID-04)
 
 ---
 
@@ -122,8 +124,8 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 | 5. Bootstrap idempotency | v1.0 | 2/2 | Complete | 2026-05-15 |
 | 6. Multi-source + per-repo filtering | v1.0 | 3/3 | Complete | 2026-05-15 |
 | 7. Droplet artifact shipping | v1.1 | 1/1 | Complete    | 2026-05-16 |
-| 8. Bootstrap uploader hardening | v1.1 | 0/? | Not started | — |
-| 9. Webhook multi-source + filter parity | v1.1 | 0/? | Not started | — |
+| 8. Bootstrap uploader hardening | v1.1 | 4/4 | Complete    | 2026-05-17 |
+| 9. Webhook multi-source + filter parity | v1.1 | 2/2 | Complete    | 2026-05-17 |
 | 10. Live-droplet UAT close-out | v1.1 | 0/? | Not started | — |
 
 ## Coverage
