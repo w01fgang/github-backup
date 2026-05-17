@@ -598,6 +598,49 @@ All values in `config.json` can be overridden. Key fields:
 
 ---
 
+## Droplet file manifest
+
+The table below lists every file that `npm run bootstrap-droplet` ships to the
+droplet, alongside its purpose and the owning phase. The list is generated from
+`scripts/lib/droplet-manifest.ts` — run `npm run sync:readme` to regenerate
+after editing the manifest. Pre-commit hook + CI reject any commit that leaves
+this section stale.
+
+<!-- BEGIN: droplet-manifest -->
+<!-- END: droplet-manifest -->
+
+## Firewall ruleset
+
+The DigitalOcean firewall attached to the droplet enforces the following rules.
+The canonical set is encoded in `scripts/create-droplet.ts`; if an operator (or
+another tool) edits these rules in the DO console, re-run `npm run create-droplet`
+to detect and repair the drift — the script logs `+ [inbound] Adding rule:` /
+`+ [outbound] Adding rule:` for each restored entry and
+`✓ [inbound|outbound] Rule already present:` for entries that match.
+
+**Inbound:**
+
+| Protocol | Port | Sources |
+|----------|------|---------|
+| TCP | 22 | `cfg.allowedSSHCidr` (from `config.json`) |
+| TCP | 80 | `0.0.0.0/0`, `::/0` |
+| TCP | 443 | `0.0.0.0/0`, `::/0` |
+
+**Outbound:**
+
+| Protocol | Port | Destinations |
+|----------|------|--------------|
+| TCP | all | `0.0.0.0/0`, `::/0` |
+| UDP | all | `0.0.0.0/0`, `::/0` |
+| ICMP | — | `0.0.0.0/0`, `::/0` |
+
+**Drift policy:** outbound reconcile is strict canonical-only — `create-droplet`
+adds any missing canonical rule but never removes operator-added extras (e.g. a
+TCP egress restriction to a private network). Inbound reconcile follows the same
+shape.
+
+---
+
 ## Troubleshooting
 
 **`doctl` returns a firewall error about outbound rules format**
