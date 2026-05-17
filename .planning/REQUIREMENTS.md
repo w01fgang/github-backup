@@ -12,11 +12,11 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 
 ### Bootstrap manifest hardening
 
-- [ ] **MANIFEST-01**: `scripts/bootstrap-droplet.ts` enforces a declared required-file manifest and exits non-zero **before any SSH** when any required droplet artifact is missing locally.
-- [ ] **MANIFEST-02**: The webhook trio (`webhook-listener.js`, `Caddyfile.template`, `github-backup-webhook.service`) is treated as mandatory by the uploader so it cannot silently skip files that `droplet/bootstrap.sh:202-208` then hard-fails on.
-- [ ] **MANIFEST-03**: README documents the complete `droplet/` file manifest so operators know exactly which files must ship for each phase.
-- [ ] **FIREWALL-01**: `scripts/create-droplet.ts` reconciles **outbound** firewall rules with the same drift-detection it already applies to inbound — restoring the canonical `TCP/all + UDP/all + ICMP/all` outbound set when an operator (or another tool) edits them away. Today only the inbound reconcile loop exists, so deleting outbound rules in the DO console silently breaks `git clone` / `gh api` / DNS until the next full firewall recreate.
-- [ ] **FIREWALL-02**: README documents the complete firewall ruleset (inbound TCP 22 from `allowedSSHCidr`, TCP 80 + TCP 443 from world; outbound TCP/UDP/ICMP unrestricted) and instructs operators to re-run `npm run create-droplet` to repair drift.
+- [x] **MANIFEST-01**: `scripts/bootstrap-droplet.ts` enforces a declared required-file manifest and exits non-zero **before any SSH** when any required droplet artifact is missing locally.
+- [x] **MANIFEST-02**: The webhook trio (`webhook-listener.js`, `Caddyfile.template`, `github-backup-webhook.service`) is treated as mandatory by the uploader so it cannot silently skip files that `droplet/bootstrap.sh:202-208` then hard-fails on.
+- [x] **MANIFEST-03**: README documents the complete `droplet/` file manifest so operators know exactly which files must ship for each phase.
+- [x] **FIREWALL-01**: `scripts/create-droplet.ts` reconciles **outbound** firewall rules with the same drift-detection it already applies to inbound — restoring the canonical `TCP/all + UDP/all + ICMP/all` outbound set when an operator (or another tool) edits them away. Today only the inbound reconcile loop exists, so deleting outbound rules in the DO console silently breaks `git clone` / `gh api` / DNS until the next full firewall recreate.
+- [x] **FIREWALL-02**: README documents the complete firewall ruleset (inbound TCP 22 from `allowedSSHCidr`, TCP 80 + TCP 443 from world; outbound TCP/UDP/ICMP unrestricted) and instructs operators to re-run `npm run create-droplet` to repair drift.
 
 ### Webhook multi-source
 
@@ -66,7 +66,7 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 | VALID-03 | 10 — Live-droplet UAT close-out |
 | VALID-04 | 9 — Webhook multi-source + filter parity |
 
-Coverage: 14/14 requirements mapped, no orphans, no duplicates.
+Coverage: 13/13 active requirements mapped (WEBHOOK-04 dropped 2026-05-17 — see entry above), no orphans, no duplicates.
 
 ---
 *Last updated: 2026-05-16 — v1.1 roadmap drafted (Phases 7-10)*
