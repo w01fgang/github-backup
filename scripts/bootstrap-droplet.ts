@@ -26,6 +26,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { Config, bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { scpFile, sshFlags, sshRun, runCapture, waitForSsh } from "./lib/ssh";
+import { required as manifestRequired, optional as manifestOptional } from "./lib/droplet-manifest";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // backup.env generator
@@ -208,6 +209,16 @@ async function main(): Promise<void> {
 
   console.log(`\n📦  Bootstrapping droplet "${name}" (${ip})…`);
 
+  // ─── Phase 8 MANIFEST-01/02 (D-03 step 1): pre-flight required-file check ─
+  // Iterate manifest.required and bail on the first miss BEFORE any SSH/scp.
+  // Bail message wording is the contract from ROADMAP Phase 8 SC#2.
+  for (const entry of manifestRequired) {
+    const abs = path.resolve(process.cwd(), entry.path);
+    if (!fs.existsSync(abs)) {
+      bail(`missing required artifact: ${entry.path}`);
+    }
+  }
+
   await waitForSsh(ip, user, keyPath);
 
   console.log(`\n📁  Creating remote directory: ${backupDir}`);
@@ -281,43 +292,39 @@ async function main(): Promise<void> {
     bail("droplet/ directory not found in the project root.");
   }
 
-  // Phase 3 (D-19): the webhook plane needs three non-.sh files uploaded
-  // alongside the existing shell scripts. Expand the suffix allow-list
-  // (was: .sh only) — droplet/bootstrap.sh defensively bails if any of
-  // webhook-listener.js, Caddyfile.template, github-backup-webhook.service
-  // is missing.
-  const scriptFiles = fs
-    .readdirSync(dropletDir, { withFileTypes: true })
-    .filter(
-      (d) => d.isFile() && /\.(sh|js|template|service)$/.test(d.name)
-    )
-    .map((d) => path.join(dropletDir, d.name));
-
-  for (const file of scriptFiles) {
-    const basename = path.basename(file);
-    console.log(`   → ${basename}`);
-    scpFile(ip, user, keyPath, file, `${backupDir}/${basename}`);
+  // ─── Phase 8 MANIFEST-01/02 (D-03 steps 2 + 3): manifest-driven upload ───
+  // Required entries are guaranteed present by the pre-flight loop above;
+  // optional entries warn-and-skip on miss. mkdir -p any destSubdir once
+  // before scp'ing into it (preserves Phase 6 behaviour for `lib/` and lets
+  // future phases drop artifacts in arbitrary sub-paths without editing
+  // this file).
+  const seenSubdirs = new Set<string>();
+  for (const entry of manifestRequired) {
+    if (entry.destSubdir && !seenSubdirs.has(entry.destSubdir)) {
+      const subdir = entry.destSubdir.replace(/\/+$/, "");
+      sshRun(ip, user, keyPath, `mkdir -p "${backupDir}/${subdir}"`);
+      seenSubdirs.add(entry.destSubdir);
+    }
+    const src = path.resolve(process.cwd(), entry.path);
+    const dst = `${backupDir}/${entry.destSubdir}${path.basename(entry.path)}`;
+    console.log(`   → ${entry.destSubdir}${path.basename(entry.path)}`);
+    scpFile(ip, user, keyPath, src, dst);
   }
 
-  // Phase 6: upload droplet/lib/*.sh helpers. github-backup.sh sources these
-  // from ${backupDir}/lib/, so the dir must exist before bootstrap.sh runs
-  // (bootstrap.sh chmod+x's them). No-op if droplet/lib/ is empty or absent.
-  const libDir = path.join(dropletDir, "lib");
-  if (fs.existsSync(libDir) && fs.statSync(libDir).isDirectory()) {
-    const libFiles = fs
-      .readdirSync(libDir, { withFileTypes: true })
-      .filter((d) => d.isFile() && d.name.endsWith(".sh"))
-      .map((d) => path.join(libDir, d.name));
-
-    if (libFiles.length > 0) {
-      console.log(`\n📤  Uploading droplet/lib/ helpers…`);
-      sshRun(ip, user, keyPath, `mkdir -p "${backupDir}/lib"`);
-      for (const file of libFiles) {
-        const basename = path.basename(file);
-        console.log(`   → lib/${basename}`);
-        scpFile(ip, user, keyPath, file, `${backupDir}/lib/${basename}`);
-      }
+  for (const entry of manifestOptional) {
+    const src = path.resolve(process.cwd(), entry.path);
+    if (!fs.existsSync(src)) {
+      console.warn(`   ⚠ optional artifact not shipped: ${entry.path}`);
+      continue;
     }
+    if (entry.destSubdir && !seenSubdirs.has(entry.destSubdir)) {
+      const subdir = entry.destSubdir.replace(/\/+$/, "");
+      sshRun(ip, user, keyPath, `mkdir -p "${backupDir}/${subdir}"`);
+      seenSubdirs.add(entry.destSubdir);
+    }
+    const dst = `${backupDir}/${entry.destSubdir}${path.basename(entry.path)}`;
+    console.log(`   → ${entry.destSubdir}${path.basename(entry.path)} (optional)`);
+    scpFile(ip, user, keyPath, src, dst);
   }
 
   console.log(`\n🚀  Running bootstrap.sh on the droplet…`);
