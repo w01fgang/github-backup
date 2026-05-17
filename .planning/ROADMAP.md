@@ -24,7 +24,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 ### v1.1 Production hardening
 
 - [x] **Phase 7: Droplet artifact shipping** — Ship the three missing droplet scripts (`sync-one-repo.sh`, `lib/detect-account-type.sh`, `lib/filter-repos.sh`) so `github-backup.sh` runs end-to-end on the droplet (completed 2026-05-16)
-- [ ] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest; `scripts/create-droplet.ts` reconciles outbound firewall rules (parity with inbound) so operator-edited drift is repaired on next run
+- [x] **Phase 8: Bootstrap uploader hardening** — `scripts/bootstrap-droplet.ts` enforces a required-file manifest and fails before SSH on missing artifacts; webhook trio mandatory; README documents the manifest; `scripts/create-droplet.ts` reconciles outbound firewall rules (parity with inbound) so operator-edited drift is repaired on next run (completed 2026-05-17)
 - [ ] **Phase 9: Webhook multi-source + filter parity** — `webhook-listener.js` routes events for any `GITHUB_SOURCES` owner and applies `filter-repos.sh` deny-wins before dispatch; `verify:phase-3` asserts both
 - [ ] **Phase 10: Live-droplet UAT close-out** — Outstanding Phase 01/03/04 human UAT scenarios and Phase 03/04 VERIFICATION.md human-needed items closed against a live droplet
 
@@ -67,7 +67,11 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   5. `scripts/create-droplet.ts` reconciles **outbound** rules with the same drift-detection it already applies to inbound (lines 153-200): on `npm run create-droplet` against an existing firewall whose outbound rules have been edited away, the script restores the canonical `TCP/all + UDP/all + ICMP/all` outbound set and logs `+ Adding outbound rule: …` for each restored entry. Re-running with the canonical set already present logs `✓ Rule already present: …` and makes zero `doctl add-rules` calls.
   6. README documents the complete firewall ruleset (inbound TCP 22 from `allowedSSHCidr`, TCP 80 + TCP 443 from world; outbound TCP/UDP/ICMP unrestricted to world) and instructs operators to re-run `npm run create-droplet` to repair drift.
 
-**Plans**: TBD
+**Plans**: 4 plans
+- [x] 08-01-PLAN.md — Manifest module + uploader pre-flight rewrite (MANIFEST-01, MANIFEST-02)
+- [x] 08-02-PLAN.md — Direction-aware reconcileRules helper + outbound reconcile (FIREWALL-01)
+- [x] 08-03-PLAN.md — sync-readme-manifest.ts + README managed/hand-maintained sections (MANIFEST-03, FIREWALL-02)
+- [x] 08-04-PLAN.md — Pre-commit hook (D-08) + sync-check CI workflow (D-09)
 
 ---
 
