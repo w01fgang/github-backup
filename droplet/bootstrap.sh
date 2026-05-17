@@ -165,7 +165,13 @@ echo "  ✓ Scripts are executable"
 # so backups continue to work even if the stored token needs refreshing.
 echo
 echo "▸ Authenticating gh CLI…"
-echo "${GITHUB_TOKEN}" | gh auth login --with-token
+# gh auth login --with-token refuses (exit 1) when GITHUB_TOKEN is already
+# exported, because the env var takes precedence and login would be a no-op.
+# Capture the token first, then run the login inside a subshell that clears
+# the env var, so the token is stored in /root/.config/gh/hosts.yml.
+_GH_LOGIN_TOKEN="${GITHUB_TOKEN}"
+( unset GITHUB_TOKEN; printf '%s' "${_GH_LOGIN_TOKEN}" | gh auth login --with-token )
+unset _GH_LOGIN_TOKEN
 echo "  ✓ gh auth status:"
 gh auth status 2>&1 | sed 's/^/    /'
 
