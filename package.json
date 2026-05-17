@@ -9,6 +9,7 @@
     "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts",
     "smoke-test": "tsx scripts/smoke-test.ts",
     "status": "tsx scripts/status.ts",
+    "uat": "tsx scripts/uat-runner.ts",
     "verify:phase-1": "tsx scripts/verify/phase-1.ts",
     "verify:phase-5": "tsx scripts/verify/phase-5.ts",
     "verify:phase-2": "tsx scripts/verify/phase-2.ts",
