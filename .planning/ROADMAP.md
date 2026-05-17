@@ -109,7 +109,10 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   3. All 4 Phase 04 human UAT scenarios **and** every human-needed item in `phases/04-restore/VERIFICATION.md` is closed with a recorded outcome against a live droplet.
   4. The v1.0 deferred-items table in STATE.md has every `uat_gap` and `verification_gap` row marked resolved with the date and verifying commit/SUMMARY reference.
 
-**Plans**: TBD
+**Plans**:
+- [x] 10-01: scripts/uat-runner.ts + 10-VERIFICATION.md skeleton (autonomous) — 2026-05-17, commits 39299e4, 7a3c9e7
+- [ ] 10-02: live-droplet execution (autonomous=false — requires live droplet + 7 operator-driven MANUAL scenarios)
+- [ ] 10-03: failure triage (autonomous=false — env/doc/infra inline fix vs blocking → spawn new phase)
 
 ---
 
@@ -126,7 +129,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 | 7. Droplet artifact shipping | v1.1 | 1/1 | Complete    | 2026-05-16 |
 | 8. Bootstrap uploader hardening | v1.1 | 4/4 | Complete    | 2026-05-17 |
 | 9. Webhook multi-source + filter parity | v1.1 | 2/2 | Complete    | 2026-05-17 |
-| 10. Live-droplet UAT close-out | v1.1 | 0/? | Not started | — |
+| 10. Live-droplet UAT close-out | v1.1 | 1/3 | In progress (wave 1 done; waves 2 + 3 await operator) | — |
 
 ## Coverage
 
