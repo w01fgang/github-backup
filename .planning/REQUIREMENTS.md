@@ -21,14 +21,14 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 ### Webhook multi-source
 
 - [ ] **WEBHOOK-03**: `webhook-listener.js` accepts and routes GitHub push events for any owner listed in `GITHUB_SOURCES` (no longer 404s on source #2+).
-- [ ] **WEBHOOK-04**: `webhook-listener.js` sources `droplet/lib/filter-repos.sh` and applies the per-source allow/deny filter before dispatching `sync-one-repo.sh`, so a push to a denied repo does not trigger a sync (deny-wins parity with cron path).
+- [~] **WEBHOOK-04** (dropped 2026-05-17 during Phase 9 discuss): Filter was deemed redundant — operators configuring a webhook on a repo express explicit intent to sync that repo; org-wide webhook drift is operator-managed (remove the webhook from repos that shouldn't sync). See `.planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md` §"Deferred Ideas" for the full rationale.
 
 ### Live-droplet validation
 
 - [ ] **VALID-01**: Phase 01 outstanding human UAT scenarios (8) completed against a live DigitalOcean droplet, results recorded, blocking items resolved.
 - [ ] **VALID-02**: Phase 03 outstanding human UAT scenarios (6) **and** `phases/03-webhook/VERIFICATION.md` human-needed items closed against a live droplet.
 - [ ] **VALID-03**: Phase 04 outstanding human UAT scenarios (4) **and** `phases/04-restore/VERIFICATION.md` human-needed items closed against a live droplet.
-- [ ] **VALID-04**: `npm run verify:phase-3` is extended so it fails when WEBHOOK-03 or WEBHOOK-04 regress (multi-source routing + filter applied on webhook path).
+- [ ] **VALID-04**: `npm run verify:phase-3` is extended so it fails when WEBHOOK-03 regresses (multi-source routing accepts events for any GITHUB_SOURCES owner; assertion covers at least 2 distinct source owners).
 
 ## Future Requirements
 
@@ -60,7 +60,7 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 | FIREWALL-01 | 8 — Bootstrap uploader hardening |
 | FIREWALL-02 | 8 — Bootstrap uploader hardening |
 | WEBHOOK-03 | 9 — Webhook multi-source + filter parity |
-| WEBHOOK-04 | 9 — Webhook multi-source + filter parity |
+| WEBHOOK-04 | 9 — dropped 2026-05-17 (see WEBHOOK-04 entry above) |
 | VALID-01 | 10 — Live-droplet UAT close-out |
 | VALID-02 | 10 — Live-droplet UAT close-out |
 | VALID-03 | 10 — Live-droplet UAT close-out |

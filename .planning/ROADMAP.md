@@ -75,15 +75,15 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 
 **Goal**: The webhook path matches the cron path — events for any `GITHUB_SOURCES` owner are accepted, and a push to a denied repo never triggers a sync.
 
-**Depends on**: Phase 7 (`droplet/lib/filter-repos.sh` must exist on droplet for WEBHOOK-04 to source it)
+**Depends on**: Phase 7 (`droplet/lib/filter-repos.sh` shipped by Phase 7; webhook path no longer sources it after WEBHOOK-04 was dropped 2026-05-17, but Phase 7 closure remains the cleanest dependency boundary)
 
-**Requirements**: WEBHOOK-03, WEBHOOK-04, VALID-04
+**Requirements**: WEBHOOK-03, VALID-04 (WEBHOOK-04 dropped 2026-05-17 — see REQUIREMENTS.md)
 
 **Success Criteria** (what must be TRUE):
   1. `webhook-listener.js` reads the `GITHUB_SOURCES` env list and returns 2xx for an authenticated push event whose `repository.owner.login` matches **any** configured source (no longer 404s on source #2+).
-  2. `webhook-listener.js` source-loads `droplet/lib/filter-repos.sh` and applies the per-source allow/deny filter before dispatching `sync-one-repo.sh`; a valid HMAC push event for a denied repo returns a non-sync response (e.g. 202 ignored) and does **not** spawn a sync.
-  3. `npm run verify:phase-3` fails when either WEBHOOK-03 (multi-source routing) or WEBHOOK-04 (deny-wins on webhook path) regresses — assertions cover both behaviours.
-  4. Existing WEBHOOK-01 / WEBHOOK-02 success criteria still pass against the modified listener (HMAC auth, per-repo sync within seconds).
+  2. `npm run verify:phase-3` fails when WEBHOOK-03 regresses — assertion covers multi-source routing for at least 2 distinct source owners.
+  3. Existing WEBHOOK-01 / WEBHOOK-02 success criteria still pass against the modified listener (HMAC auth, per-repo sync within seconds).
+  4. *(Dropped 2026-05-17.)* The earlier SC#2 / SC#3 assertions about filter-on-webhook-path were retired with WEBHOOK-04 — per-repo webhook configuration is treated as explicit operator consent. See `.planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md` §"Deferred Ideas".
 
 **Plans**: TBD
 
@@ -124,7 +124,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
 
 ## Coverage
 
-All 12 v1.1 requirements mapped to exactly one phase. No orphans.
+All 11 active v1.1 requirements mapped to exactly one phase. No orphans. (WEBHOOK-04 dropped 2026-05-17 — see REQUIREMENTS.md.)
 
 | REQ-ID | Phase |
 |--------|-------|
@@ -135,7 +135,7 @@ All 12 v1.1 requirements mapped to exactly one phase. No orphans.
 | MANIFEST-02 | 8 |
 | MANIFEST-03 | 8 |
 | WEBHOOK-03 | 9 |
-| WEBHOOK-04 | 9 |
+| WEBHOOK-04 | 9 — dropped 2026-05-17 |
 | VALID-04 | 9 |
 | VALID-01 | 10 |
 | VALID-02 | 10 |
