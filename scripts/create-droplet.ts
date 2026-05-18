@@ -82,6 +82,17 @@ function normalizeCidr(addr: string): string {
 }
 
 /**
+ * Treat `"all"`, `""`, and `"0"` as equivalent — `--inbound-rules
+ * ports:all` is what doctl accepts in input, but the DO API persists the
+ * same semantics as `"0"` (icmp also emits `"0"` because ports do not
+ * apply). Without this, `ports:all` expected rules never match present
+ * `ports:"0"` rules → reconcile re-adds them on every run → duplicates.
+ */
+function normalizePorts(ports: string): string {
+  return ports === "all" || ports === "" ? "0" : ports;
+}
+
+/**
  * Strict canonical-only reconcile (D-10):
  *   - Add any missing canonical rule.
  *   - Leave operator-added extras untouched (no removal).
@@ -100,40 +111,45 @@ function reconcileRules(
 ): void {
   const flag = direction === "inbound" ? "--inbound-rules" : "--outbound-rules";
   const fromOrTo = direction === "inbound" ? "from" : "to";
+  const addressesOf = (p: InboundRule | OutboundRule): string[] =>
+    (direction === "inbound"
+      ? (p as InboundRule).sources?.addresses ?? []
+      : (p as OutboundRule).destinations?.addresses ?? []
+    ).map(normalizeCidr);
   for (const r of expected) {
-    const expectedSet = new Set(r.endpoints.split(",").map(normalizeCidr));
-    const match = present.find((p) => {
-      const endpoint =
-        direction === "inbound"
-          ? (p as InboundRule).sources?.addresses ?? []
-          : (p as OutboundRule).destinations?.addresses ?? [];
-      const normalised = endpoint.map(normalizeCidr);
-      if (p.protocol !== r.protocol) return false;
-      // icmp has no ports in expected; doctl emits empty string.
-      if (r.ports !== "" && p.ports !== r.ports) return false;
-      if (normalised.length !== expectedSet.size) return false;
-      return normalised.every((a) => expectedSet.has(a));
-    });
+    // Per-CIDR coverage check: doctl creates ONE firewall-rule entity per
+    // address (multi-CIDR rules split on the API side), so a single
+    // "expected" rule may span N present rule entities. Aggregate by
+    // (protocol, ports) and check each expected CIDR independently; add
+    // only the missing ones. This is idempotent in both DO storage shapes
+    // (one rule with multi-addr, or N rules each with one addr).
+    const expectedCidrs = r.endpoints.split(",").map(normalizeCidr);
+    const wantPorts = normalizePorts(r.ports);
+    const missing = expectedCidrs.filter(
+      (cidr) =>
+        !present.some(
+          (p) =>
+            p.protocol === r.protocol &&
+            normalizePorts(p.ports) === wantPorts &&
+            addressesOf(p).includes(cidr)
+        )
+    );
     const portsLabel = r.ports === "" ? "" : `/${r.ports}`;
-    if (match) {
+    if (missing.length === 0) {
       console.log(
         `   ✓ [${direction}] Rule already present: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
       );
     } else {
       console.log(
-        `   + [${direction}] Adding rule: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
+        `   + [${direction}] Adding rule: ${r.protocol}${portsLabel} ${fromOrTo} ${missing.join(",")}`
       );
       const portsPart = r.ports === "" ? "" : `,ports:${r.ports}`;
       // doctl format (per `doctl compute firewall add-rules --help`):
-      //   - Each rule = comma-separated `key:value` list with ONE address.
-      //   - Multi-CIDR requires multiple rules space-separated inside ONE
-      //     quoted `--inbound-rules` / `--outbound-rules` value. A comma
-      //     after `address:` would be parsed as the next field, silently
-      //     overwriting the first address.
-      //   - Earlier `sources:addresses:` / `destinations:addresses:` keys
-      //     are ignored entirely, producing rules with empty sources.
-      const subRules = r.endpoints
-        .split(",")
+      //   - Each sub-rule = comma-separated `key:value` list with ONE address.
+      //   - Multi-CIDR requires multiple sub-rules space-separated inside ONE
+      //     quoted flag value. A comma after `address:` would be parsed as
+      //     the next field, silently overwriting the first address.
+      const subRules = missing
         .map((cidr) => `protocol:${r.protocol}${portsPart},address:${cidr}`)
         .join(" ");
       runCapture(
