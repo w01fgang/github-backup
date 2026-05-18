@@ -45,11 +45,12 @@ runtime_commit: <Phase 8 commit f64b216 or later — set when 10-02 executes>
 
 | Scenario | Classification | Reason | Resolution |
 |----------|----------------|--------|------------|
+| Pre-wave-2: droplet bootstrap auth | infra | `gh auth login --with-token` exits 1 when `GITHUB_TOKEN` is exported; backup.env sources the token at script top, so login always failed on a fresh droplet. | Patched `droplet/bootstrap.sh` to capture token, run login in subshell with `GITHUB_TOKEN` unset (commit `6dfb3ef`). Awaiting redeploy via `npm run bootstrap-droplet` against droplet 571320803. |
 | (empty until 10-03 triages failures) | | | |
 
 ## Inline Fixes
 
-(Filled by 10-03 for `env:` / `doc:` / `infra:` classifications.)
+- **infra** `droplet/bootstrap.sh` gh-auth env conflict — commit `6dfb3ef`, 2026-05-18. Found during pre-wave-2 bootstrap of droplet 571320803 (164.90.237.11). Bootstrap re-run pending operator.
 
 ## Spawned Bug-Fix Phases
 
