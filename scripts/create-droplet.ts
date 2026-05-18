@@ -124,17 +124,21 @@ function reconcileRules(
         `   + [${direction}] Adding rule: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
       );
       const portsPart = r.ports === "" ? "" : `,ports:${r.ports}`;
-      // doctl format: `address:CIDR` is singular and repeated per CIDR.
-      // The `sources:addresses:` / `destinations:addresses:` keys used
-      // previously are ignored by doctl ≥1.150, which silently creates
-      // a rule with empty sources/destinations (effectively blocking all).
-      const addressPart = r.endpoints
+      // doctl format (per `doctl compute firewall add-rules --help`):
+      //   - Each rule = comma-separated `key:value` list with ONE address.
+      //   - Multi-CIDR requires multiple rules space-separated inside ONE
+      //     quoted `--inbound-rules` / `--outbound-rules` value. A comma
+      //     after `address:` would be parsed as the next field, silently
+      //     overwriting the first address.
+      //   - Earlier `sources:addresses:` / `destinations:addresses:` keys
+      //     are ignored entirely, producing rules with empty sources.
+      const subRules = r.endpoints
         .split(",")
-        .map((cidr) => `,address:${cidr}`)
-        .join("");
+        .map((cidr) => `protocol:${r.protocol}${portsPart},address:${cidr}`)
+        .join(" ");
       runCapture(
         `doctl compute firewall add-rules ${firewallId} ` +
-          `${flag} "protocol:${r.protocol}${portsPart}${addressPart}"`
+          `${flag} "${subRules}"`
       );
     }
   }
@@ -275,19 +279,35 @@ function findOrCreateFirewall(cfg: Config): string {
   // Inbound: SSH (22/tcp) from the configured CIDR, plus HTTP (80) and
   // HTTPS (443) from 0.0.0.0/0,::/0 for the webhook listener / Caddy ACME.
   // Outbound: all TCP, UDP, ICMP allowed (needed for apt, DNS, HTTPS git clones).
+  // doctl format (per `doctl compute firewall create --help`):
+  //   - Each rule = comma-separated `key:value` list with EXACTLY ONE address.
+  //   - Multi-CIDR (IPv4 + IPv6) requires TWO rules — comma after `address:`
+  //     would be parsed as the next field, overwriting the first address.
+  //   - Multiple rules in ONE direction must be space-separated INSIDE a
+  //     single quoted `--inbound-rules` / `--outbound-rules` value. Repeating
+  //     the flag overwrites earlier occurrences (silent in doctl ≤1.154).
+  //   - Earlier `sources:addresses:` / `destinations:addresses:` keys are
+  //     ignored entirely, producing rules with empty source/destination.
+  const inbound = [
+    `protocol:tcp,ports:22,address:${cfg.allowedSSHCidr}`,
+    `protocol:tcp,ports:80,address:0.0.0.0/0`,
+    `protocol:tcp,ports:80,address:::/0`,
+    `protocol:tcp,ports:443,address:0.0.0.0/0`,
+    `protocol:tcp,ports:443,address:::/0`,
+  ].join(" ");
+  const outbound = [
+    `protocol:tcp,ports:all,address:0.0.0.0/0`,
+    `protocol:tcp,ports:all,address:::/0`,
+    `protocol:udp,ports:all,address:0.0.0.0/0`,
+    `protocol:udp,ports:all,address:::/0`,
+    `protocol:icmp,address:0.0.0.0/0`,
+    `protocol:icmp,address:::/0`,
+  ].join(" ");
   const createCmd = [
     `doctl compute firewall create`,
     `--name "${cfg.firewallName}"`,
-    // doctl format: `address:CIDR` is singular and repeated per CIDR.
-    // The `sources:addresses:` / `destinations:addresses:` keys used
-    // previously are ignored by doctl ≥1.150, which silently creates
-    // a rule with empty sources/destinations (effectively blocking all).
-    `--inbound-rules "protocol:tcp,ports:22,address:${cfg.allowedSSHCidr}"`,
-    `--inbound-rules "protocol:tcp,ports:80,address:0.0.0.0/0,address:::/0"`,
-    `--inbound-rules "protocol:tcp,ports:443,address:0.0.0.0/0,address:::/0"`,
-    `--outbound-rules "protocol:tcp,ports:all,address:0.0.0.0/0,address:::/0"`,
-    `--outbound-rules "protocol:udp,ports:all,address:0.0.0.0/0,address:::/0"`,
-    `--outbound-rules "protocol:icmp,address:0.0.0.0/0,address:::/0"`,
+    `--inbound-rules "${inbound}"`,
+    `--outbound-rules "${outbound}"`,
     `--output json`,
   ].join(" ");
 
