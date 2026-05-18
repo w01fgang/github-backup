@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Production hardening
 status: in-progress
-last_updated: "2026-05-17T11:30:00.000Z"
-last_activity: 2026-05-17 -- Phase 10 wave 1 (10-01) complete — UAT runner shipped, waves 2 + 3 await live droplet + operator
+last_updated: "2026-05-18T00:00:00.000Z"
+last_activity: 2026-05-18 -- Phase 10 wave 2 prep — gh-auth bootstrap bug found on droplet 571320803, patched (6dfb3ef), audit recorded (1e3d212), droplet redeploy pending operator
 progress:
   total_phases: 4
   completed_phases: 3
@@ -18,24 +18,24 @@ progress:
 **Project**: github-backup
 **Version**: v1.1
 **Initialized**: 2026-04-29
-**Status**: Phase 10 wave 1 complete; waves 2 + 3 await operator (live droplet)
+**Status**: Phase 10 wave 1 complete; wave 2 prep uncovered + patched a bootstrap auth bug; redeploy pending operator
 
 ## Current Position
 
 Phase: 10 — IN PROGRESS (wave 1/3 complete)
 Plan: 1 of 3 (10-01 complete; 10-02 + 10-03 are autonomous=false)
-Status: Wave 1 shipped scripts/uat-runner.ts + 10-VERIFICATION.md skeleton. Waves 2 + 3 require live DigitalOcean droplet + operator action on 7 manual UAT scenarios + failure triage.
-Last activity: 2026-05-17 -- Phase 10 wave 1 (10-01) complete — UAT runner shipped, waves 2 + 3 await live droplet + operator
+Status: Wave 1 shipped scripts/uat-runner.ts + 10-VERIFICATION.md skeleton. Wave 2 prep against droplet 571320803 (164.90.237.11, fra1) uncovered a bootstrap auth bug — `gh auth login --with-token` rejected because GITHUB_TOKEN env was set. Fix shipped as 6dfb3ef; finding recorded in 10-VERIFICATION.md (1e3d212). Wave 2 still requires operator to re-run `npm run bootstrap-droplet` with the patched script, then walk the 7 manual UAT scenarios.
+Last activity: 2026-05-18 -- Phase 10 wave 2 prep — gh-auth bootstrap bug found on droplet 571320803, patched (6dfb3ef), audit recorded (1e3d212), droplet redeploy pending operator
 
 ### Phase 10 wave gate
 
 | Wave | Plan | Autonomous | Status |
 |------|------|------------|--------|
 | 1 | 10-01 | true | ✓ complete (commits 39299e4, 7a3c9e7) |
-| 2 | 10-02 | false | awaiting operator: run `npm run uat` against a live droplet, execute 7 MANUAL scenarios by hand, fill 10-VERIFICATION.md |
+| 2 | 10-02 | false | awaiting operator: re-run `npm run bootstrap-droplet` (carries patch 6dfb3ef) against droplet 571320803, then `npm run uat` + 7 MANUAL scenarios, fill 10-VERIFICATION.md |
 | 3 | 10-03 | false | awaiting operator: triage any failures from wave 2 (env/doc/infra inline fix vs blocking → spawn new phase) |
 
-**To resume**: with a live droplet provisioned (`npm run create-droplet && npm run bootstrap-droplet`), an operator runs `/gsd-execute-phase 10 --wave 2` and walks through the manual scenarios. Wave 3 follows once wave 2 records every result in `10-VERIFICATION.md`.
+**To resume**: droplet 571320803 (164.90.237.11, fra1) is already provisioned + firewall reconciled. Operator must re-run `GITHUB_TOKEN=… npm run bootstrap-droplet` to ship the patched `droplet/bootstrap.sh` (commit 6dfb3ef) — confirm `gh auth status` reports authenticated, then `/gsd-execute-phase 10 --wave 2` to walk the manual scenarios. Wave 3 follows once wave 2 records every result in `10-VERIFICATION.md`.
 
 ### v1.1 phase map
 
