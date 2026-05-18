@@ -100,8 +100,6 @@ function reconcileRules(
 ): void {
   const flag = direction === "inbound" ? "--inbound-rules" : "--outbound-rules";
   const fromOrTo = direction === "inbound" ? "from" : "to";
-  const endpointKw =
-    direction === "inbound" ? "sources:addresses" : "destinations:addresses";
   for (const r of expected) {
     const expectedSet = new Set(r.endpoints.split(",").map(normalizeCidr));
     const match = present.find((p) => {
@@ -126,9 +124,17 @@ function reconcileRules(
         `   + [${direction}] Adding rule: ${r.protocol}${portsLabel} ${fromOrTo} ${r.endpoints}`
       );
       const portsPart = r.ports === "" ? "" : `,ports:${r.ports}`;
+      // doctl format: `address:CIDR` is singular and repeated per CIDR.
+      // The `sources:addresses:` / `destinations:addresses:` keys used
+      // previously are ignored by doctl ≥1.150, which silently creates
+      // a rule with empty sources/destinations (effectively blocking all).
+      const addressPart = r.endpoints
+        .split(",")
+        .map((cidr) => `,address:${cidr}`)
+        .join("");
       runCapture(
         `doctl compute firewall add-rules ${firewallId} ` +
-          `${flag} "protocol:${r.protocol}${portsPart},${endpointKw}:${r.endpoints}"`
+          `${flag} "protocol:${r.protocol}${portsPart}${addressPart}"`
       );
     }
   }
@@ -272,12 +278,16 @@ function findOrCreateFirewall(cfg: Config): string {
   const createCmd = [
     `doctl compute firewall create`,
     `--name "${cfg.firewallName}"`,
-    `--inbound-rules "protocol:tcp,ports:22,sources:addresses:${cfg.allowedSSHCidr}"`,
-    `--inbound-rules "protocol:tcp,ports:80,sources:addresses:0.0.0.0/0,::/0"`,
-    `--inbound-rules "protocol:tcp,ports:443,sources:addresses:0.0.0.0/0,::/0"`,
-    `--outbound-rules "protocol:tcp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
-    `--outbound-rules "protocol:udp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
-    `--outbound-rules "protocol:icmp,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0"`,
+    // doctl format: `address:CIDR` is singular and repeated per CIDR.
+    // The `sources:addresses:` / `destinations:addresses:` keys used
+    // previously are ignored by doctl ≥1.150, which silently creates
+    // a rule with empty sources/destinations (effectively blocking all).
+    `--inbound-rules "protocol:tcp,ports:22,address:${cfg.allowedSSHCidr}"`,
+    `--inbound-rules "protocol:tcp,ports:80,address:0.0.0.0/0,address:::/0"`,
+    `--inbound-rules "protocol:tcp,ports:443,address:0.0.0.0/0,address:::/0"`,
+    `--outbound-rules "protocol:tcp,ports:all,address:0.0.0.0/0,address:::/0"`,
+    `--outbound-rules "protocol:udp,ports:all,address:0.0.0.0/0,address:::/0"`,
+    `--outbound-rules "protocol:icmp,address:0.0.0.0/0,address:::/0"`,
     `--output json`,
   ].join(" ");
 
