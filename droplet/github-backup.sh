@@ -278,10 +278,10 @@ for SOURCE in "${SOURCES[@]}"; do
     # whole multi-source run; sync-one-repo.sh additionally takes a per-repo
     # lock on fd 8 (D-16). Outer wrapper just tallies SUCCESS/FAIL.
     if "${BACKUP_DIR}/sync-one-repo.sh" "${SOURCE}" "${OWNER}" "${NAME}"; then
-      (( S_SUCCESS++ ))
+      S_SUCCESS=$(( S_SUCCESS + 1 ))
     else
       ROW_ACTION="fail"
-      (( S_FAIL++ ))
+      S_FAIL=$(( S_FAIL + 1 ))
     fi
 
     REPO_DUR_MS=$(awk -v t0="$REPO_T0" -v t1="${EPOCHREALTIME}" 'BEGIN { printf "%d", (t1 - t0) * 1000 }')
