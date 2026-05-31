@@ -119,9 +119,9 @@ const SCENARIOS: Scenario[] = [
     mode: "scripted",
     steps: [
       {
-        label: "github-backup.sh installed + timer enabled",
-        cmd: "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} 'test -x /opt/github-backups/github-backup.sh && systemctl is-enabled github-backup.timer'",
-        expectStdout: /^enabled$/m,
+        label: "github-backup.sh installed + cron entry present",
+        cmd: "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} 'test -x /opt/github-backups/github-backup.sh && crontab -l | grep -q github-backup.sh && echo cron-ok'",
+        expectStdout: /^cron-ok$/m,
         timeoutSec: 30,
       },
     ],
@@ -294,16 +294,20 @@ const SCENARIOS: Scenario[] = [
           "set -euo pipefail; " +
           "FIRST=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} 'ls -d /opt/github-backups/*/*.git 2>/dev/null | head -1'); " +
           "if [ -z \"$FIRST\" ]; then echo \"no *.git on droplet\" >&2; exit 1; fi; " +
-          // Strip /opt/github-backups/<owner>/<owner>_<repo>.git → <owner>/<repo>
-          "OWNER=$(basename $(dirname \"$FIRST\")); " +
+          // Mirror path is <source>/<owner>_<repo>.git; source ≠ owner, so derive
+          // owner/repo from the basename. GitHub owners cannot contain "_".
           "BASE=$(basename \"$FIRST\" .git); " +
-          "REPO=${BASE#${OWNER}_}; " +
+          "OWNER=${BASE%%_*}; " +
+          "REPO=${BASE#*_}; " +
           "DEST=$(mktemp -d)/restore-smoke; " +
           "OUT=$(npm run --silent restore -- \"$OWNER/$REPO\" \"$DEST\" 2>&1); " +
           "echo \"$OUT\" > /tmp/uat-p04-01.log; " +
           "FIRSTLINE=$(echo \"$OUT\" | grep -m1 -E '^RESTORE_LOCAL_MIRROR=' || true); " +
           "if [ -z \"$FIRSTLINE\" ]; then echo \"missing RESTORE_LOCAL_MIRROR= line\" >&2; exit 1; fi; " +
           "test -d \"$DEST/.git\"; " +
+          // Persist the working-clone dir into the log so p04-02 (separate
+          // process) can pick it up; the bare RESTORE_LOCAL_MIRROR has no .git.
+          "echo \"P04_01_DEST=$DEST\" >> /tmp/uat-p04-01.log; " +
           "echo P04_01_DEST=$DEST",
         expectStdout: /^P04_01_DEST=/m,
         timeoutSec: 300,
