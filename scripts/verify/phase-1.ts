@@ -258,7 +258,7 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
     ip,
     user,
     key,
-    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | wc -l`
+    `ls -1d ${REMOTE_DIR}/*/*.git 2>/dev/null | wc -l`
   );
   const fsCount = parseInt(fsCountStr.trim(), 10);
   assert(
@@ -279,7 +279,7 @@ function group4CloneProbe(cfg: Config, info: DropletInfo): void {
     ip,
     user,
     key,
-    `ls -1d ${REMOTE_DIR}/*.git 2>/dev/null | head -n1`
+    `ls -1d ${REMOTE_DIR}/*/*.git 2>/dev/null | head -n1`
   );
   assert(
     firstGit.length > 0 && firstGit.endsWith(".git"),

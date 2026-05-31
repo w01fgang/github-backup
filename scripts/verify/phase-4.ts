@@ -142,7 +142,19 @@ assert(
 // --- Group 2: refs match (RESTORE-02 via D-02) ----------------------------
 console.log("\n— Group 2: Ref equivalence (RESTORE-02 / D-02) —");
 
-const remoteMirrorPath = `${cfg.backupDir}/${owner}_${repo}.git`;
+// Multi-source layout: mirrors live under <backupDir>/<source>/<owner>_<repo>.git
+// and the source dir is not derivable from owner alone (a source may back up
+// repos owned by other accounts). Resolve the actual path by globbing.
+const remoteMirrorPath = runCapture(
+  `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
+    `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null | head -n1'`
+).trim();
+if (!remoteMirrorPath) {
+  bail(
+    `No mirror for ${owner}/${repo} found under ${cfg.backupDir}/*/ on the droplet. ` +
+      `Run a backup first or check config.restoreTestRepo.`
+  );
+}
 const remoteCmd =
   `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
   `'git -C "${remoteMirrorPath}" for-each-ref --format="%(objectname) %(refname)" | sort'`;
