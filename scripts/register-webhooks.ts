@@ -2,10 +2,15 @@
 /**
  * scripts/register-webhooks.ts
  *
- * Idempotently create GitHub webhooks for every repo under
- * cfg.githubUserOrOrg. Reads WEBHOOK_SECRET from the droplet's backup.env
+ * Idempotently create GitHub webhooks for every repo under each source in
+ * cfg.sources. Reads WEBHOOK_SECRET from the droplet's backup.env
  * over SSH so there is no local secret cache that can drift after
  * `bootstrap-droplet --rotate-webhook-secret`.
+ *
+ * Webhooks are registered on ALL repos of each source's owner (no per-repo
+ * allow/deny filtering here). The webhook-listener on the droplet applies the
+ * deny-wins allow/deny filter at receive time (Phase 9), so a hook on a
+ * filtered-out repo is a harmless no-op rather than an unwanted backup.
  *
  * Usage:
  *   npm run register-webhooks                # create missing webhooks; no-op on existing
@@ -84,28 +89,7 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── Detect account type + list repos ────────────────────────────────────
-  const owner = cfg.githubUserOrOrg;
-  let acctType = "User";
-  try {
-    acctType = gh(`/users/${owner} --jq .type`).trim() || "User";
-  } catch {
-    acctType = "User";
-  }
-  const endpoint =
-    acctType === "Organization"
-      ? `/orgs/${owner}/repos?type=all&per_page=100`
-      : `/users/${owner}/repos?type=all&per_page=100`;
-
-  const fullNames = gh(`--paginate ${endpoint} --jq '.[].full_name'`)
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  console.log(`\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos`);
-  console.log(`     webhook URL: ${url}`);
-  if (dryRun) console.log(`     mode: DRY-RUN (no API calls will be made)\n`);
-
+  // ── Per-source: detect account type, list repos, register webhooks ──────
   let registered = 0;
   let alreadyPresent = 0;
   let updated = 0;
@@ -113,78 +97,101 @@ async function main(): Promise<void> {
   let wouldRegister = 0;
   let wouldUpdate = 0;
 
-  for (const full of fullNames) {
-    // List existing matching hook IDs (filtered by url).
-    const listRes = ghIgnoreStderr(
-      `repos/${full}/hooks --jq '.[] | select(.config.url == "${url}") | .id'`
-    );
-    if (!listRes.ok) {
-      console.log(
-        `   ✗ ${full}: list hooks failed (${listRes.stderr.split("\n")[0]})`
-      );
-      failed++;
-      continue;
+  for (const src of cfg.sources) {
+    const owner = src.name;
+    let acctType = "User";
+    try {
+      acctType = gh(`/users/${owner} --jq .type`).trim() || "User";
+    } catch {
+      acctType = "User";
     }
-    const existingIds = listRes.stdout
+    const endpoint =
+      acctType === "Organization"
+        ? `/orgs/${owner}/repos?type=all&per_page=100`
+        : `/users/${owner}/repos?type=all&per_page=100`;
+
+    const fullNames = gh(`--paginate "${endpoint}" --jq '.[] | select(.permissions.admin) | .full_name'`)
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (existingIds.length === 0) {
-      // Create
-      if (dryRun) {
-        console.log(`   • would CREATE ${full}`);
-        wouldRegister++;
+    console.log(`\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos`);
+    console.log(`     webhook URL: ${url}`);
+    if (dryRun) console.log(`     mode: DRY-RUN (no API calls will be made)`);
+
+    for (const full of fullNames) {
+      // List existing matching hook IDs (filtered by url).
+      const listRes = ghIgnoreStderr(
+        `repos/${full}/hooks --jq '.[] | select(.config.url == "${url}") | .id'`
+      );
+      if (!listRes.ok) {
+        console.log(
+          `   ✗ ${full}: list hooks failed (${listRes.stderr.split("\n")[0]})`
+        );
+        failed++;
         continue;
       }
-      try {
-        ghJson("POST", `repos/${full}/hooks`, {
-          name: "web",
-          active: true,
-          events: ["push"],
-          config: { url, secret, content_type: "json", insecure_ssl: "0" },
-        });
-        console.log(`   ✓ CREATED ${full}`);
-        registered++;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
-        console.log(`   ✗ CREATE ${full} failed: ${msg}`);
+      const existingIds = listRes.stdout
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (existingIds.length === 0) {
+        // Create
+        if (dryRun) {
+          console.log(`   • would CREATE ${full}`);
+          wouldRegister++;
+          continue;
+        }
+        try {
+          ghJson("POST", `repos/${full}/hooks`, {
+            name: "web",
+            active: true,
+            events: ["push"],
+            config: { url, secret, content_type: "json", insecure_ssl: "0" },
+          });
+          console.log(`   ✓ CREATED ${full}`);
+          registered++;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+          console.log(`   ✗ CREATE ${full} failed: ${msg}`);
+          failed++;
+        }
+        continue;
+      }
+
+      if (!update) {
+        console.log(
+          `   = ${full}: webhook already present (id=${existingIds[0]})`
+        );
+        alreadyPresent++;
+        continue;
+      }
+
+      // --update path: PATCH each matching hook with current secret.
+      if (dryRun) {
+        console.log(`   • would UPDATE ${full} (id=${existingIds.join(",")})`);
+        wouldUpdate++;
+        continue;
+      }
+      let allOk = true;
+      for (const id of existingIds) {
+        try {
+          ghJson("PATCH", `repos/${full}/hooks/${id}`, {
+            config: { url, secret, content_type: "json", insecure_ssl: "0" },
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+          console.log(`   ✗ UPDATE ${full} (id=${id}) failed: ${msg}`);
+          allOk = false;
+        }
+      }
+      if (allOk) {
+        console.log(`   ✓ UPDATED ${full}`);
+        updated++;
+      } else {
         failed++;
       }
-      continue;
-    }
-
-    if (!update) {
-      console.log(
-        `   = ${full}: webhook already present (id=${existingIds[0]})`
-      );
-      alreadyPresent++;
-      continue;
-    }
-
-    // --update path: PATCH each matching hook with current secret.
-    if (dryRun) {
-      console.log(`   • would UPDATE ${full} (id=${existingIds.join(",")})`);
-      wouldUpdate++;
-      continue;
-    }
-    let allOk = true;
-    for (const id of existingIds) {
-      try {
-        ghJson("PATCH", `repos/${full}/hooks/${id}`, {
-          config: { url, secret, content_type: "json", insecure_ssl: "0" },
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
-        console.log(`   ✗ UPDATE ${full} (id=${id}) failed: ${msg}`);
-        allOk = false;
-      }
-    }
-    if (allOk) {
-      console.log(`   ✓ UPDATED ${full}`);
-      updated++;
-    } else {
-      failed++;
     }
   }
 

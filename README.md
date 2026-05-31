@@ -51,7 +51,32 @@ github-backup/
 | **doctl** | [install guide](https://docs.digitalocean.com/reference/doctl/how-to/install/) |
 | **doctl authenticated** | run `doctl auth init` once |
 | **SSH key in DigitalOcean** | add at <https://cloud.digitalocean.com/account/security> |
-| **GitHub PAT** | needs `repo` scope (read) — [create one here](https://github.com/settings/tokens/new) |
+| **GitHub PAT** | scopes depend on features — see [Token scopes](#token-scopes) below |
+
+### Token scopes
+
+Create a token at <https://github.com/settings/personal-access-tokens/new>
+(fine-grained) or <https://github.com/settings/tokens/new> (classic).
+
+**Classic PAT:**
+
+| Scope | When |
+|---|---|
+| `repo` | always (read private + public repos; `public_repo` alone misses private repos) |
+
+`repo` already includes repo-level webhook management, so no extra scope is
+needed for `register-webhooks`.
+
+**Fine-grained PAT** — Repository permissions:
+
+| Permission | Access | When |
+|---|---|---|
+| Contents | Read | always (`git clone --mirror`) |
+| Metadata | Read | always (auto-required; repo listing) |
+| Webhooks | Read and write | only if using `register-webhooks` |
+
+For org-owned repos, set **Resource owner** to the org and grant it access to
+the target repositories.
 
 ### Find your SSH key fingerprint
 
