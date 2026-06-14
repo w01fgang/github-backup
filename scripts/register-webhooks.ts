@@ -7,10 +7,18 @@
  * over SSH so there is no local secret cache that can drift after
  * `bootstrap-droplet --rotate-webhook-secret`.
  *
- * Webhooks are registered on ALL repos of each source's owner (no per-repo
- * allow/deny filtering here). The webhook-listener on the droplet applies the
- * deny-wins allow/deny filter at receive time (Phase 9), so a hook on a
- * filtered-out repo is a harmless no-op rather than an unwanted backup.
+ * Webhooks are registered on every repo of each source's owner that the token
+ * can admin (no per-repo allow/deny filtering here).
+ *
+ * IMPORTANT — allow/deny is NOT enforced on the webhook path. The droplet's
+ * webhook-listener gates by OWNER membership only (GITHUB_SOURCES); it does
+ * not read the GITHUB_SOURCE_ALLOW_<n> / GITHUB_SOURCE_DENY_<n> lines, and the
+ * sync-one-repo.sh it dispatches does no filtering. WEBHOOK-04 (per-repo
+ * parity) was dropped 2026-05-17 (see
+ * droplet/webhook-listener.js header). So a push to a `repos.deny`-listed repo
+ * of an allowed owner WILL be mirrored via webhook. repos.allow/deny is applied
+ * ONLY on the scheduled cron path (github-backup.sh → filter-repos.sh). If you
+ * need a repo to never be mirrored, do not register/keep a webhook on it.
  *
  * Usage:
  *   npm run register-webhooks                # create missing webhooks; no-op on existing
@@ -110,10 +118,21 @@ async function main(): Promise<void> {
         ? `/orgs/${owner}/repos?type=all&per_page=100`
         : `/users/${owner}/repos?type=all&per_page=100`;
 
-    const fullNames = gh(`--paginate "${endpoint}" --jq '.[] | select(.permissions.admin) | .full_name'`)
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // Per-source listing must not be fatal: one source that 404s / is invisible
+    // to the token / is rate-limited would otherwise throw out of this loop and
+    // skip every remaining source. Log, tally, and move on.
+    let fullNames: string[];
+    try {
+      fullNames = gh(`--paginate "${endpoint}" --jq '.[] | select(.permissions.admin) | .full_name'`)
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+      console.log(`   ✗ ${owner}: repo list failed (${msg}) — skipping source`);
+      failed++;
+      continue;
+    }
 
     console.log(`\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos`);
     console.log(`     webhook URL: ${url}`);
