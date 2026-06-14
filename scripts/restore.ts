@@ -90,7 +90,11 @@ let mirrorMatches: string[];
 try {
   mirrorMatches = runCapture(
     `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
-      `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null'`
+      // `|| true`: an unmatched glob makes ls exit non-zero, which would throw
+      // into the SSH-error branch below; force exit 0 so zero matches reach the
+      // length===0 "no mirror" bail. A real SSH failure still throws (ssh exits
+      // 255 before the remote command runs).
+      `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null || true'`
   )
     .split(/\r?\n/)
     .map((s) => s.trim())
