@@ -115,6 +115,10 @@ const SHELL_SAFE_FIELDS: (keyof Config)[] = [
   "githubUserOrOrg",
   "backupDir",
   "webhookHostname",
+  // Interpolated raw into `doctl ... --inbound-rules "…address:${allowedSSHCidr}"`
+  // (create-droplet.ts) which runs through execSync. A CIDR only needs
+  // [0-9a-f.:/] so SHELL_SAFE_RE is a strict superset — valid values pass.
+  "allowedSSHCidr",
 ];
 const SHELL_SAFE_RE = /^[A-Za-z0-9._/~@:-]+$/;
 
