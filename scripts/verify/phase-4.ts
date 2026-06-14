@@ -145,16 +145,36 @@ console.log("\n— Group 2: Ref equivalence (RESTORE-02 / D-02) —");
 // Multi-source layout: mirrors live under <backupDir>/<source>/<owner>_<repo>.git
 // and the source dir is not derivable from owner alone (a source may back up
 // repos owned by other accounts). Resolve the actual path by globbing.
-const remoteMirrorPath = runCapture(
-  `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
-    `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null | head -n1'`
-).trim();
-if (!remoteMirrorPath) {
+let mirrorMatches: string[];
+try {
+  mirrorMatches = runCapture(
+    `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
+      `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null'`
+  )
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+} catch (e) {
+  bail(
+    `Could not list mirrors on ${cfg.sshUser}@${info.ip} over SSH. ` +
+      `Check the droplet is reachable and the SSH key has access. ` +
+      `(${e instanceof Error ? e.message.split("\n")[0] : e})`
+  );
+}
+if (mirrorMatches.length === 0) {
   bail(
     `No mirror for ${owner}/${repo} found under ${cfg.backupDir}/*/ on the droplet. ` +
       `Run a backup first or check config.restoreTestRepo.`
   );
 }
+if (mirrorMatches.length > 1) {
+  bail(
+    `Ambiguous: ${owner}/${repo} is mirrored under ${mirrorMatches.length} sources:\n` +
+      mirrorMatches.map((m) => `  ${m}`).join("\n") +
+      `\nThe same repo is backed up by more than one source — refusing to guess.`
+  );
+}
+const remoteMirrorPath = mirrorMatches[0];
 const remoteCmd =
   `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
   `'git -C "${remoteMirrorPath}" for-each-ref --format="%(objectname) %(refname)" | sort'`;
