@@ -38,6 +38,8 @@ claim into the actual code, citing `path:line` evidence. Read-only; no files mod
 | Cursor | cursor-agent | ❌ not authenticated (`agent login` / `CURSOR_API_KEY` required) |
 | OpenCode | grok-4.3 | ❌ killed before flush on both runs — agentic run exceeds background wall-clock, 0 bytes |
 
+> **Status (2026-07-21):** the concerns both reviewers agreed on — cert future-expiry, multi-source repo count, and manual-UAT closure — were fixed in commit `b874a32`. The per-reviewer sections below are the **pre-fix snapshot**, kept verbatim (their `file:line` refs are pre-fix); see the **Resolution — agreed concerns addressed** section at the end for exactly what changed.
+
 ---
 
 ## Codex Review
