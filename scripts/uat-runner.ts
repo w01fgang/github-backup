@@ -149,13 +149,26 @@ const SCENARIOS: Scenario[] = [
         label: "compare upstream gh repo count vs disk mirror count",
         cmd:
           "set -euo pipefail; " +
-          "SLUG=$(node -e \"const c=require('./config.json'); console.log(c.githubUserOrOrg || (c.githubSources && c.githubSources[0] && (typeof c.githubSources[0]==='string'?c.githubSources[0]:c.githubSources[0].name)));\"); " +
-          "if [ -z \"$SLUG\" ] || [ \"$SLUG\" = \"undefined\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
-          "UPSTREAM=$(gh api \"users/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); " +
-          "if [ \"$UPSTREAM\" = \"0\" ]; then UPSTREAM=$(gh api \"orgs/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); fi; " +
-          "DISK=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} 'ls -d /opt/github-backups/*/*.git 2>/dev/null | wc -l' | tr -d ' '); " +
-          "echo \"upstream=$UPSTREAM disk=$DISK\"; " +
-          "if [ \"$DISK\" -lt \"$UPSTREAM\" ]; then echo \"disk ($DISK) < upstream ($UPSTREAM)\" >&2; exit 1; fi",
+          // Resolve EVERY source name (string or {name}); fall back to the
+          // single-source key only when githubSources is absent/empty.
+          "NAMES=$(node -e \"const c=require('./config.json'); let n=(c.githubSources||[]).map(x=>typeof x==='string'?x:(x&&x.name)).filter(Boolean); if(!n.length && c.githubUserOrOrg) n=[c.githubUserOrOrg]; n.forEach(function(s){console.log(s)});\"); " +
+          "if [ -z \"$NAMES\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
+          "TOTAL_UP=0; TOTAL_DISK=0; " +
+          // Compare EACH source's own upstream count to its own mirror dir so an
+          // unmirrored source #2 fails loudly instead of passing under source #1's
+          // disk count. CAVEAT: for a source WITH repos allow/deny filters this
+          // compares RAW upstream vs disk and can over-count upstream (pre-existing
+          // limitation; loud-fail is acceptable for a UAT gate).
+          "while IFS= read -r SLUG; do " +
+          "[ -z \"$SLUG\" ] && continue; " +
+          "UP=$(gh api \"users/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); " +
+          "if [ \"$UP\" = \"0\" ]; then UP=$(gh api \"orgs/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); fi; " +
+          "DK=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} \"ls -d /opt/github-backups/$SLUG/*.git 2>/dev/null | wc -l\" | tr -d ' '); " +
+          "echo \"source=$SLUG upstream=$UP disk=$DK\"; " +
+          "if [ \"$DK\" -lt \"$UP\" ]; then echo \"source $SLUG: disk ($DK) < upstream ($UP)\" >&2; exit 1; fi; " +
+          "TOTAL_UP=$((TOTAL_UP + UP)); TOTAL_DISK=$((TOTAL_DISK + DK)); " +
+          "done <<< \"$NAMES\"; " +
+          "echo \"upstream=$TOTAL_UP disk=$TOTAL_DISK\"",
         expectStdout: /upstream=\d+ disk=\d+/,
         timeoutSec: 120,
       },
@@ -223,7 +236,7 @@ const SCENARIOS: Scenario[] = [
     steps: [
       {
         label: "openssl s_client | x509 -enddate",
-        cmd: "echo | openssl s_client -servername {{cfg.webhookHostname}} -connect {{cfg.webhookHostname}}:443 2>/dev/null | openssl x509 -noout -enddate",
+        cmd: "echo | openssl s_client -servername {{cfg.webhookHostname}} -connect {{cfg.webhookHostname}}:443 2>/dev/null | openssl x509 -noout -checkend 0 -enddate",
         expectStdout: /^notAfter=/m,
         timeoutSec: 30,
       },
@@ -591,7 +604,7 @@ async function main(): Promise<void> {
         // template so the operator sees what to do.
         rendered = instr;
       }
-      console.log(`…  MANUAL: ${s.id}: ${rendered}`);
+      console.log(`…  PENDING (unattested manual): ${s.id}: ${rendered}`);
       results.push({ id: s.id, kind: "manual", message: rendered });
       continue;
     }
@@ -609,6 +622,14 @@ async function main(): Promise<void> {
 
   // Summary table per phase (printed; copy/paste-ready for 10-VERIFICATION.md).
   printSummary(results);
+
+  const pendingManual = results.filter((r) => r.kind === "manual").length;
+  if (pendingManual > 0) {
+    console.log("");
+    console.log(
+      `⚠  ${pendingManual} manual scenario(s) PENDING operator attestation — UAT is INCOMPLETE. Record each outcome in 10-VERIFICATION.md before closing Phase 10. Exit 0 means scripted checks passed, NOT that manual UAT is done.`,
+    );
+  }
 
   // Exit code semantics (D-01).
   const anyFailed = results.some((r) => r.kind === "failed");
@@ -644,8 +665,8 @@ function printSummary(results: ScenarioResult[]): void {
   console.log("");
   console.log("## Summary");
   console.log("");
-  console.log("| Bucket | Total | Passed | Failed | Manual (recorded) |");
-  console.log("|--------|-------|--------|--------|-------------------|");
+  console.log("| Bucket | Total | Passed | Failed | Manual PENDING (unattested) |");
+  console.log("|--------|-------|--------|--------|----------------------------|");
   const phases: PhaseTag[] = ["01", "03", "04", "8-deferred"];
   const labels: Record<PhaseTag, string> = {
     "01": "Phase 01 UAT",
