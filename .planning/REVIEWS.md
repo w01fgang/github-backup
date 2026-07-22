@@ -34,7 +34,7 @@ claim into the actual code, citing `path:line` evidence. Read-only; no files mod
 | Codex | gpt-5.5 (`codex exec -s read-only`) | ✅ completed | HIGH |
 | Claude CLI | claude (headless `-p`) | ✅ completed | LOW-MEDIUM |
 | Grok | grok CLI | ❌ headless self-cancels; auto-approve modes classifier-blocked (5 attempts) |
-| Gemini | gemini CLI | ❌ `IneligibleTierError` — individual tier no longer supported |
+| Gemini | gemini CLI | ❌ `IneligibleTierError` — individual tier unsupported |
 | Cursor | cursor-agent | ❌ not authenticated (`agent login` / `CURSOR_API_KEY` required) |
 | OpenCode | grok-4.3 | ❌ killed before flush on both runs — agentic run exceeds background wall-clock, 0 bytes |
 
