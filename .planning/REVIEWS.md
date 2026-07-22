@@ -38,7 +38,7 @@ claim into the actual code, citing `path:line` evidence. Read-only; no files mod
 | Cursor | cursor-agent | ❌ not authenticated (`agent login` / `CURSOR_API_KEY` required) |
 | OpenCode | grok-4.3 | ❌ killed before flush on both runs — agentic run exceeds background wall-clock, 0 bytes |
 
-> **Status (2026-07-21):** the concerns both reviewers agreed on — cert future-expiry, multi-source repo count, and manual-UAT closure — were fixed in commit `b874a32`. The per-reviewer sections below are the **pre-fix snapshot**, kept verbatim (their `file:line` refs are pre-fix); see the **Resolution — agreed concerns addressed** section at the end for exactly what changed.
+> Each reviewer section below is that reviewer's verbatim findings, with the `file:line` refs each cited. The **Current behavior — agreed concerns** section at the end states how the code in this branch stands on those concerns.
 
 ---
 
@@ -199,17 +199,14 @@ Two independent source-grounded reviewers (Codex/gpt-5.5 and Claude CLI). Both t
 
 ---
 
-## Resolution — agreed concerns addressed (2026-07-20)
+## Current behavior — agreed concerns
 
-The both-reviewer **agreed concerns** were independently re-verified against current source, then fixed (typecheck + `bash -n` green; no commit yet):
+How the code in this branch stands on the concerns both reviewers raise (verified: `tsc --noEmit` clean, `bash -n` on the shell commands):
 
-- **Phase 10 can falsely close unexecuted manual UAT** → fixed in code + plan.
-  - `scripts/uat-runner.ts`: manual scenarios now print `PENDING (unattested manual)`, the summary column is `Manual PENDING (unattested)`, and a closing `⚠ … UAT is INCOMPLETE` warning prints when any manual scenario is unattested. Exit-code contract (0/1/2) unchanged.
-  - `10-02-PLAN.md` task 02-03: removed the "`pending` drops to 0 … count un-upgraded manuals in `skipped`" loophole (it fed 02-04's STATE resolution); `pending` now reaches 0 only once every manual scenario carries an attested outcome.
-  - `10-02-PLAN.md` task 02-01: added a **patched-bootstrap redeploy gate** — `ssh root@<ip> 'gh auth status'` must exit 0 before UAT runs (proves patch `6dfb3ef` actually redeployed, so UAT can't run against a stale droplet). `.deployed-commit` marker deferred as a separate infra follow-up.
-- **`uat-runner` repo-count too loose for multi-source** → `scripts/uat-runner.ts` p01-05 now loops every source and compares each source's own upstream count to its own mirror dir (`/opt/github-backups/<owner>/*.git`); an unmirrored source #2 now fails loudly. Caveat commented: for allow/deny-filtered sources it compares raw upstream vs disk (pre-existing limitation; loud-fail is the safe direction).
-- **`uat-runner` cert assertion** → cert step now uses `openssl x509 -checkend 0` so an already-expired cert fails, matching `verify:phase-3`.
+- **Phase 10 manual UAT.** `scripts/uat-runner.ts` prints unexecuted manual scenarios as `PENDING (unattested manual)`, labels the summary column `Manual PENDING (unattested)`, and prints a `⚠ … UAT is INCOMPLETE` warning while any manual scenario is unattested. The runner records each result as `passed`/`failed`/`manual` and exits 0/1/2 with a manual scenario never setting exit 1.
+- **Phase 10 closure gate.** `10-02-PLAN.md` task 02-03: `pending` reaches 0 only once every manual scenario carries an attested `manual:`/`passed:`/`failed:` outcome; unattested manuals stay PENDING and outside `skipped`. Task 02-04's STATE resolution keys on `pending: 0`.
+- **Deployed-droplet gate.** `10-02-PLAN.md` task 02-01: `ssh root@<ip> 'gh auth status'` gates the live run, so UAT runs against a droplet carrying bootstrap patch `6dfb3ef`. A `.deployed-commit` marker is a separate infra follow-up.
+- **Multi-source repo count.** `scripts/uat-runner.ts` p01-05 compares each configured source's own upstream repo count to its own mirror dir (`/opt/github-backups/<owner>/*.git`); a source whose mirror count is below its upstream count fails the step, and a source whose `gh` upstream lookup fails errors by name.
+- **Cert expiry.** The cert step uses `openssl x509 -checkend 0`; an expired certificate fails the step.
 
-**Note on accuracy:** the manual-UAT finding's cited internals (a `pending:0`-forcing aggregation at `uat-runner.ts:581-615`) did **not** exist in current code — the runner is simpler (`ResultKind = passed|failed|manual`, exit 0 if none failed). The real risk (unexecuted manual reads as complete) was genuine and is what the relabel + attestation-gate fixes.
-
-**Out of scope (not "agreed"):** the two Codex-only HIGH security items (unauthenticated webhook memory-exhaustion; REPOS-01 deny-list bypass via `register-webhooks.ts`) were single-sourced and are left for direct operator verification, not addressed here.
+**Out of scope.** The two Codex-only HIGH security items (unauthenticated webhook memory-exhaustion; REPOS-01 deny-list bypass via `register-webhooks.ts`) are single-sourced and left for direct operator verification.

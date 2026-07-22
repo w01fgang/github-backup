@@ -161,8 +161,11 @@ const SCENARIOS: Scenario[] = [
           // limitation; loud-fail is acceptable for a UAT gate).
           "while IFS= read -r SLUG; do " +
           "[ -z \"$SLUG\" ] && continue; " +
-          "UP=$(gh api \"users/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); " +
-          "if [ \"$UP\" = \"0\" ]; then UP=$(gh api \"orgs/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); fi; " +
+          "set +e; " +
+          "UP=$(gh api \"users/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); rc_u=$?; " +
+          "if [ \"$rc_u\" -ne 0 ] || [ \"$UP\" -eq 0 ]; then UP=$(gh api \"orgs/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); rc_o=$?; else rc_o=0; fi; " +
+          "set -e; " +
+          "if [ \"$rc_u\" -ne 0 ] && [ \"$rc_o\" -ne 0 ]; then echo \"source $SLUG: gh upstream lookup failed (users and orgs)\" >&2; exit 1; fi; " +
           "DK=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} \"ls -d /opt/github-backups/$SLUG/*.git 2>/dev/null | wc -l\" | tr -d ' '); " +
           "echo \"source=$SLUG upstream=$UP disk=$DK\"; " +
           "if [ \"$DK\" -lt \"$UP\" ]; then echo \"source $SLUG: disk ($DK) < upstream ($UP)\" >&2; exit 1; fi; " +
