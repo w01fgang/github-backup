@@ -46,7 +46,7 @@ github-backup/
 
 | Requirement | Notes |
 |---|---|
-| **Node.js ≥ 18** | `node --version` |
+| **Node.js ≥ 24** (Active LTS) | `node --version` |
 | **npm** | comes with Node |
 | **doctl** | [install guide](https://docs.digitalocean.com/reference/doctl/how-to/install/) |
 | **doctl authenticated** | run `doctl auth init` once |
