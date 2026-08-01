@@ -142,37 +142,45 @@ const SCENARIOS: Scenario[] = [
   {
     id: "p01-05",
     phase: "01",
-    title: "Real GitHub User/Org Mirrored (disk count ≥ upstream count)",
+    title: "Real GitHub User/Org Mirrored (disk count ≥ kept-after-filter count)",
     mode: "scripted",
     steps: [
       {
-        label: "compare upstream gh repo count vs disk mirror count",
+        label: "compare kept (post allow/deny) gh repo count vs disk mirror count",
         cmd:
           "set -euo pipefail; " +
-          // Resolve EVERY source name (string or {name}); fall back to the
-          // single-source key only when githubSources is absent/empty.
-          "NAMES=$(node -e \"const c=require('./config.json'); let n=(c.githubSources||[]).map(x=>typeof x==='string'?x:(x&&x.name)).filter(Boolean); if(!n.length && c.githubUserOrOrg) n=[c.githubUserOrOrg]; n.forEach(function(s){console.log(s)});\"); " +
-          "if [ -z \"$NAMES\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
-          "TOTAL_UP=0; TOTAL_DISK=0; " +
-          // Compare EACH source's own upstream count to its own mirror dir so an
+          // Source the canonical droplet helpers so this gate applies EXACTLY the
+          // account-type + allow/deny rules the backup job applies. github-backup.sh
+          // mirrors the post-filter KEPT set, so KEPT — not raw upstream — is the
+          // number disk must match (droplet/github-backup.sh:242-255).
+          "source droplet/lib/detect-account-type.sh; " +
+          "source droplet/lib/filter-repos.sh; " +
+          // One TSV row per source: <name>\t<allow globs>\t<deny globs>. Falls back
+          // to the deprecated single-source key only when githubSources is absent.
+          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\t')); }\"); " +
+          "if [ -z \"$ROWS\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
+          "TOTAL_UP=0; TOTAL_KEPT=0; TOTAL_DISK=0; " +
+          // Compare EACH source's own kept count to its own mirror dir so an
           // unmirrored source #2 fails loudly instead of passing under source #1's
-          // disk count. CAVEAT: for a source WITH repos allow/deny filters this
-          // compares RAW upstream vs disk and can over-count upstream (pre-existing
-          // limitation; loud-fail is acceptable for a UAT gate).
-          "while IFS= read -r SLUG; do " +
+          // disk count.
+          "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
+          "if [ \"$(detect_account_type \"$SLUG\")\" = \"Organization\" ]; then EP=\"/orgs/$SLUG/repos?type=all&per_page=100\"; else EP=\"/users/$SLUG/repos?type=all&per_page=100\"; fi; " +
           "set +e; " +
-          "UP=$(gh api \"users/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); rc_u=$?; " +
-          "if [ \"$rc_u\" -ne 0 ] || [ \"$UP\" -eq 0 ]; then UP=$(gh api \"orgs/$SLUG/repos\" --paginate --jq 'length' 2>/dev/null | awk '{s+=$1} END {print s+0}'); rc_o=$?; else rc_o=0; fi; " +
+          "LIST=$(gh api --paginate \"$EP\" --jq '.[].full_name' 2>/dev/null); rc=$?; " +
           "set -e; " +
-          "if [ \"$rc_u\" -ne 0 ] && [ \"$rc_o\" -ne 0 ]; then echo \"source $SLUG: gh upstream lookup failed (users and orgs)\" >&2; exit 1; fi; " +
-          "DK=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} \"ls -d /opt/github-backups/$SLUG/*.git 2>/dev/null | wc -l\" | tr -d ' '); " +
-          "echo \"source=$SLUG upstream=$UP disk=$DK\"; " +
-          "if [ \"$DK\" -lt \"$UP\" ]; then echo \"source $SLUG: disk ($DK) < upstream ($UP)\" >&2; exit 1; fi; " +
-          "TOTAL_UP=$((TOTAL_UP + UP)); TOTAL_DISK=$((TOTAL_DISK + DK)); " +
-          "done <<< \"$NAMES\"; " +
-          "echo \"upstream=$TOTAL_UP disk=$TOTAL_DISK\"",
-        expectStdout: /upstream=\d+ disk=\d+/,
+          "if [ \"$rc\" -ne 0 ]; then echo \"source $SLUG: gh upstream lookup failed ($EP)\" >&2; exit 1; fi; " +
+          "UP=$(printf '%s\\n' \"$LIST\" | awk 'NF' | wc -l | tr -d ' '); " +
+          "KEPT=$(printf '%s\\n' \"$LIST\" | filter_repos \"$SLUG\" \"$ALLOW\" \"$DENY\" | wc -l | tr -d ' '); " +
+          // -n: ssh MUST NOT read the loop's here-string stdin, or it swallows the
+          // remaining source rows and only source #1 is ever checked.
+          "DK=$(ssh -n -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -i {{cfg.sshKeyPath}} root@{{droplet.ip}} \"ls -d /opt/github-backups/$SLUG/*.git 2>/dev/null | wc -l\" | tr -d ' '); " +
+          "echo \"source=$SLUG upstream=$UP kept=$KEPT disk=$DK\"; " +
+          "if [ \"$DK\" -lt \"$KEPT\" ]; then echo \"source $SLUG: disk ($DK) < kept ($KEPT) after allow/deny\" >&2; exit 1; fi; " +
+          "TOTAL_UP=$((TOTAL_UP + UP)); TOTAL_KEPT=$((TOTAL_KEPT + KEPT)); TOTAL_DISK=$((TOTAL_DISK + DK)); " +
+          "done <<< \"$ROWS\"; " +
+          "echo \"upstream=$TOTAL_UP kept=$TOTAL_KEPT disk=$TOTAL_DISK\"",
+        expectStdout: /upstream=\d+ kept=\d+ disk=\d+/,
         timeoutSec: 120,
       },
     ],

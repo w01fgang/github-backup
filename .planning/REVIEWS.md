@@ -201,12 +201,12 @@ Two independent source-grounded reviewers (Codex/gpt-5.5 and Claude CLI). Both t
 
 ## Current behavior — agreed concerns
 
-How the code in this branch stands on the concerns both reviewers raise (verified: `tsc --noEmit` clean, `bash -n` on the shell commands):
+How the code in this branch stands on the concerns both reviewers raise (verified: `tsc -p tsconfig.json --noEmit --types node` clean — this branch predates master's tsconfig `"types": ["node"]`, so the flag supplies it; `bash -n` on the shell commands; p01-05 exercised against stubbed `gh`/`ssh` for filtered, under-mirrored, zero-repo, and lookup-failure sources).
 
 - **Phase 10 manual UAT.** `scripts/uat-runner.ts` prints unexecuted manual scenarios as `PENDING (unattested manual)`, labels the summary column `Manual PENDING (unattested)`, and prints a `⚠ … UAT is INCOMPLETE` warning while any manual scenario is unattested. The runner records each result as `passed`/`failed`/`manual` and exits 0/1/2 with a manual scenario never setting exit 1.
 - **Phase 10 closure gate.** `10-02-PLAN.md` task 02-03: `pending` reaches 0 only once every manual scenario carries an attested `manual:`/`passed:`/`failed:` outcome; unattested manuals stay PENDING and outside `skipped`. Task 02-04's STATE resolution keys on `pending: 0`.
 - **Deployed-droplet gate.** `10-02-PLAN.md` task 02-01: `ssh root@<ip> 'gh auth status'` gates the live run, so UAT runs against a droplet carrying bootstrap patch `6dfb3ef`. A `.deployed-commit` marker is a separate infra follow-up.
-- **Multi-source repo count.** `scripts/uat-runner.ts` p01-05 compares each configured source's own upstream repo count to its own mirror dir (`/opt/github-backups/<owner>/*.git`); a source whose mirror count is below its upstream count fails the step, and a source whose `gh` upstream lookup fails errors by name.
+- **Multi-source repo count.** `scripts/uat-runner.ts` p01-05 sources the canonical droplet helpers (`droplet/lib/detect-account-type.sh`, `droplet/lib/filter-repos.sh`) and compares each configured source's own **post-filter kept** repo count to its own mirror dir (`/opt/github-backups/<owner>/*.git`) — the same allow/deny set `droplet/github-backup.sh` actually mirrors, so a filtered source no longer fails on repos it intentionally skips. A source whose mirror count is below its kept count fails the step, and a source whose `gh` upstream lookup fails errors by name. The per-source `ssh` runs with `-n` so it cannot swallow the loop's remaining source rows.
 - **Cert expiry.** The cert step uses `openssl x509 -checkend 0`; an expired certificate fails the step.
 
 **Out of scope.** The two Codex-only HIGH security items (unauthenticated webhook memory-exhaustion; REPOS-01 deny-list bypass via `register-webhooks.ts`) are single-sourced and left for direct operator verification.
