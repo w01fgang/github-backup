@@ -59,6 +59,7 @@ import * as path from "path";
 import { spawnSync } from "child_process";
 import { loadConfig, loadDropletInfo, bail } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import { findMirrors } from "../lib/mirror-path";
 
 const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const RESTORE_HANDSHAKE_RE = /^RESTORE_LOCAL_MIRROR=(.+)$/;
@@ -217,20 +218,19 @@ console.log("\n— Group 2: Ref equivalence (RESTORE-02 / D-02) —");
 
 // Multi-source layout: mirrors live under <backupDir>/<source>/<owner>_<repo>.git
 // and the source dir is not derivable from owner alone (a source may back up
-// repos owned by other accounts). Resolve the actual path by globbing.
+// repos owned by other accounts). The droplet is asked for the mirrors that
+// match this slug — case-insensitively, since mirror dirs carry GitHub's
+// canonical casing and slugs need not (D-08).
 let mirrorMatches: string[];
 try {
-  mirrorMatches = runCapture(
-    `ssh ${sshFlags(cfg.sshKeyPath)} ${cfg.sshUser}@${info.ip} ` +
-      // `|| true`: an unmatched glob makes ls exit non-zero, which would throw
-      // into the SSH-error branch below; force exit 0 so zero matches reach the
-      // length===0 "no mirror" bail. A real SSH failure still throws (ssh exits
-      // 255 before the remote command runs).
-      `'ls -1d ${cfg.backupDir}/*/${owner}_${repo}.git 2>/dev/null || true'`
-  )
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  mirrorMatches = findMirrors(
+    cfg.backupDir,
+    cfg.sshUser,
+    info.ip,
+    cfg.sshKeyPath,
+    owner,
+    repo
+  );
 } catch (e) {
   bail(
     `Could not list mirrors on ${cfg.sshUser}@${info.ip} over SSH. ` +
@@ -246,9 +246,10 @@ if (mirrorMatches.length === 0) {
 }
 if (mirrorMatches.length > 1) {
   bail(
-    `Ambiguous: ${owner}/${repo} is mirrored under ${mirrorMatches.length} sources:\n` +
+    `Ambiguous: ${owner}/${repo} resolves to ${mirrorMatches.length} mirrors:\n` +
       mirrorMatches.map((m) => `  ${m}`).join("\n") +
-      `\nThe same repo is backed up by more than one source — refusing to guess.`
+      `\nEither more than one source backs this repo up, or the same repo is ` +
+      `mirrored under two casings — one of those is stale. Refusing to guess.`
   );
 }
 const remoteMirrorPath = mirrorMatches[0];
