@@ -390,7 +390,7 @@ const SCENARIOS: Scenario[] = [
     title: "verify:phase-4 ref-mismatch path",
     mode: "manual",
     manualInstruction:
-      "Operator: inject a ref mismatch with `ssh root@{{droplet.ip}} 'git -C /opt/github-backups/<owner>/<owner>_<repo>.git update-ref refs/heads/__test__ HEAD'` (use the repo from `cfg.restoreTestRepo`). Run `npm run verify:phase-4` and verify exit 1 + `✗ ref mismatch between droplet mirror and restored bare mirror`. Cleanup: `ssh root@{{droplet.ip}} 'git -C /opt/github-backups/<owner>/<owner>_<repo>.git update-ref -d refs/heads/__test__'`. D-02: mutates droplet mirror, runner does NOT automate.",
+      "Operator: inject the mismatch AFTER `npm run restore` has cloned, never before — restore mirror-clones FROM the droplet, so a ref added first is copied into the local mirror and both sides stay equal (`npm run verify:phase-4` then exits 0 and proves nothing). Sequence, using the repo from `cfg.restoreTestRepo`: (1) `npm run restore -- <owner>/<repo> $(mktemp -d)/wc` and note the `RESTORE_LOCAL_MIRROR=<path>` line; (2) `ssh root@{{droplet.ip}} 'git -C /opt/github-backups/<source>/<owner>_<repo>.git update-ref refs/heads/__test__ HEAD'`; (3) run the same comparison verify:phase-4 makes — `ssh root@{{droplet.ip}} \"git -C <mirror> for-each-ref --format='%(objectname) %(refname)' | sort\"` against `git -C <RESTORE_LOCAL_MIRROR> for-each-ref --format='%(objectname) %(refname)' | sort` — and verify the droplet side carries an extra `refs/heads/__test__` line. Cleanup: `ssh root@{{droplet.ip}} 'git -C <mirror> update-ref -d refs/heads/__test__'`. D-02: mutates droplet mirror, runner does NOT automate.",
   },
 
   // ─── Phase 8 deferred live-validation — 3 scenarios ────────────────────
@@ -400,7 +400,7 @@ const SCENARIOS: Scenario[] = [
     title: "Firewall drift-inject test",
     mode: "manual",
     manualInstruction:
-      "Operator: run `doctl compute firewall remove-rules <fw-id> --outbound-rules \"protocol:tcp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0\"` then `npm run create-droplet`. Verify post-run: `+ [outbound] Adding rule:` for the deleted entry; zero `add-rules` calls on the immediate re-run. D-02: mutates firewall, runner does NOT automate.",
+      "Operator: `create-droplet` stores IPv4 and IPv6 as SEPARATE rules, so drop one of them with the same syntax it writes: `doctl compute firewall remove-rules <fw-id> --outbound-rules \"protocol:tcp,ports:all,address:0.0.0.0/0\"`. The `destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0` spelling matches no stored rule, exits 0 and changes nothing — confirm the count really dropped with `doctl compute firewall get <fw-id> --output json | jq '.[0].outbound_rules | length'` (6 → 5) before continuing. Then `npm run create-droplet`. Verify post-run: `+ [outbound] Adding rule: tcp/all to 0.0.0.0/0`; zero `Adding rule` / `Removing rule` lines on the immediate re-run. D-02: mutates firewall, runner does NOT automate.",
   },
   {
     id: "p8d-10",
@@ -408,7 +408,7 @@ const SCENARIOS: Scenario[] = [
     title: "Firewall extras-preservation test",
     mode: "manual",
     manualInstruction:
-      "Operator: run `doctl compute firewall add-rules <fw-id> --outbound-rules \"protocol:tcp,ports:9999,destinations:addresses:0.0.0.0/0\"` then `npm run create-droplet`. Verify post-run: the extras row is still present on the firewall; no `remove-rules` call. D-02: mutates firewall, runner does NOT automate.",
+      "Operator: `doctl compute firewall add-rules <fw-id> --outbound-rules \"protocol:tcp,ports:9999,address:0.0.0.0/0\"` — the `destinations:addresses:…` spelling prints `Error: cannot use null as iterable`, still exits 0, and adds nothing, so confirm the rule exists before continuing. Then `npm run create-droplet`. Verify post-run: no `Removing rule` line, and `doctl compute firewall get <fw-id> --output json | jq '.[0].outbound_rules[] | select(.ports==\"9999\")'` still returns the extras row. Cleanup: the same command with `remove-rules`. D-02: mutates firewall, runner does NOT automate.",
   },
   {
     id: "p8d-11",
