@@ -113,7 +113,13 @@ console.log(`   Restoring ${slug} into ${target}…`);
 // RESTORE_LOCAL_MIRROR= handshake, as stdout's first line. Progress and the
 // success summary go to the helper's own stderr, which stays on inherit so
 // the operator sees them directly as they happen.
-const r = spawnSync("npm", ["run", "restore", "--", slug, target], {
+//
+// `--silent` is load-bearing, not tidiness: npm prints its own
+// `> github-backup@1.0.0 restore` banner to the child's *stdout*, which lands
+// ahead of the handshake and breaks the first-line contract below. The UAT
+// runner's p04-01 step already invokes `npm run --silent restore` for the same
+// reason.
+const r = spawnSync("npm", ["run", "--silent", "restore", "--", slug, target], {
   stdio: ["inherit", "pipe", "inherit"],
   env: process.env,
   encoding: "utf8",
