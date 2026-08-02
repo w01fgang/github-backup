@@ -21,7 +21,7 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 ### Webhook multi-source
 
 - [x] **WEBHOOK-03**: `webhook-listener.js` accepts and routes GitHub push events for any owner listed in `GITHUB_SOURCES` (no longer 404s on source #2+).
-- [~] **WEBHOOK-04** (dropped 2026-05-17 during Phase 9 discuss): Filter was deemed redundant — operators configuring a webhook on a repo express explicit intent to sync that repo; org-wide webhook drift is operator-managed (remove the webhook from repos that shouldn't sync). See `.planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md` §"Deferred Ideas" for the full rationale.
+- [x] **WEBHOOK-04**: `webhook-listener.js` applies the source's `repos.allow` / `repos.deny` globs before dispatching a push (403 on a denied repo), and `register-webhooks.ts` never registers a hook on a denied repo. Both delegate to `droplet/lib/filter-repos.sh` — the helper the cron path sources — so all three mirror paths share one glob implementation. Dropped 2026-05-17 during Phase 9 discuss on the rationale that a per-repo webhook is explicit consent; reinstated after cross-AI review showed `register-webhooks.ts` auto-registers hooks on *every* admin-capable repo, so no per-repo consent is ever expressed (`.planning/REVIEWS.md`).
 
 ### Live-droplet validation
 
@@ -60,13 +60,13 @@ Goal: close runtime-critical droplet bugs, webhook multi-source gaps, and outsta
 | FIREWALL-01 | 8 — Bootstrap uploader hardening |
 | FIREWALL-02 | 8 — Bootstrap uploader hardening |
 | WEBHOOK-03 | 9 — Webhook multi-source + filter parity |
-| WEBHOOK-04 | 9 — dropped 2026-05-17 (see WEBHOOK-04 entry above) |
+| WEBHOOK-04 | 9 (dropped) → reinstated post-review (see WEBHOOK-04 entry above) |
 | VALID-01 | 10 — Live-droplet UAT close-out |
 | VALID-02 | 10 — Live-droplet UAT close-out |
 | VALID-03 | 10 — Live-droplet UAT close-out |
 | VALID-04 | 9 — Webhook multi-source + filter parity |
 
-Coverage: 13/13 active requirements mapped (WEBHOOK-04 dropped 2026-05-17 — see entry above), no orphans, no duplicates.
+Coverage: 14/14 active requirements mapped (WEBHOOK-04 reinstated after cross-AI review — see entry above), no orphans, no duplicates.
 
 ---
 *Last updated: 2026-05-16 — v1.1 roadmap drafted (Phases 7-10)*

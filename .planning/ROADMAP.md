@@ -87,7 +87,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   1. `webhook-listener.js` reads the `GITHUB_SOURCES` env list and returns 2xx for an authenticated push event whose `repository.owner.login` matches **any** configured source (no longer 404s on source #2+).
   2. `npm run verify:phase-3` fails when WEBHOOK-03 regresses — assertion covers multi-source routing for at least 2 distinct source owners.
   3. Existing WEBHOOK-01 / WEBHOOK-02 success criteria still pass against the modified listener (HMAC auth, per-repo sync within seconds).
-  4. *(Dropped 2026-05-17.)* The earlier SC#2 / SC#3 assertions about filter-on-webhook-path were retired with WEBHOOK-04 — per-repo webhook configuration is treated as explicit operator consent. See `.planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md` §"Deferred Ideas".
+  4. *(Dropped 2026-05-17, reinstated post-review.)* Phase 9 retired the filter-on-webhook-path assertions on the rationale that a per-repo webhook is explicit operator consent. Cross-AI review found `register-webhooks.ts` auto-registers hooks on every admin-capable repo, so that consent is never actually expressed; WEBHOOK-04 now ships in `webhook-listener.js` + `register-webhooks.ts`. See `.planning/REVIEWS.md` and the WEBHOOK-04 entry in `REQUIREMENTS.md`.
 
 **Plans**: 2 plans
 - [x] 09-01-PLAN.md — Multi-source webhook listener with per-request env re-read (WEBHOOK-03)

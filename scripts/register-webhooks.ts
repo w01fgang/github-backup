@@ -8,17 +8,14 @@
  * `bootstrap-droplet --rotate-webhook-secret`.
  *
  * Webhooks are registered on every repo of each source's owner that the token
- * can admin (no per-repo allow/deny filtering here).
+ * can admin AND that survives that source's `repos.allow` / `repos.deny` globs.
  *
- * IMPORTANT — allow/deny is NOT enforced on the webhook path. The droplet's
- * webhook-listener gates by OWNER membership only (GITHUB_SOURCES); it does
- * not read the GITHUB_SOURCE_ALLOW_<n> / GITHUB_SOURCE_DENY_<n> lines, and the
- * sync-one-repo.sh it dispatches does no filtering. WEBHOOK-04 (per-repo
- * parity) was dropped 2026-05-17 (see
- * droplet/webhook-listener.js header). So a push to a `repos.deny`-listed repo
- * of an allowed owner WILL be mirrored via webhook. repos.allow/deny is applied
- * ONLY on the scheduled cron path (github-backup.sh → filter-repos.sh). If you
- * need a repo to never be mirrored, do not register/keep a webhook on it.
+ * REPOS-01 parity (WEBHOOK-04): filtering here uses the same
+ * `droplet/lib/filter-repos.sh` the cron path sources, so registration, cron,
+ * and the droplet's webhook-listener all agree on which repos may be mirrored.
+ * A denied repo never gets a hook; one that already carries a hook (registered
+ * before the deny rule existed, or added by hand) is reported at the end for
+ * removal — and is rejected with 403 by the listener in the meantime.
  *
  * Usage:
  *   npm run register-webhooks                # create missing webhooks; no-op on existing
@@ -28,12 +25,50 @@
  * Refs: D-21, D-22 (.planning/phases/03-webhook/03-CONTEXT.md)
  */
 
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { sshFlags, runCapture } from "./lib/ssh";
 
 function gh(args: string): string {
   return runCapture(`gh api ${args}`);
+}
+
+const FILTER_LIB = path.resolve(__dirname, "..", "droplet", "lib", "filter-repos.sh");
+
+/**
+ * REPOS-01: keep only the repos a source's allow/deny globs admit.
+ *
+ * Delegates to the canonical `filter_repos` rather than reimplementing bash
+ * `case` glob semantics in TS, so registration cannot drift from the cron path
+ * or the droplet listener. Empty allow AND empty deny is pass-through
+ * (ROADMAP SC#5) and skips the subprocess.
+ */
+function filterRepos(
+  source: string,
+  fullNames: string[],
+  allow: string[],
+  deny: string[]
+): string[] {
+  const allowStr = allow.join(" ").trim();
+  const denyStr = deny.join(" ").trim();
+  if (!allowStr && !denyStr) return fullNames;
+  if (!fs.existsSync(FILTER_LIB)) {
+    bail(`REPOS-01 filter helper missing: ${FILTER_LIB}. Refusing to register webhooks unfiltered.`);
+  }
+  const r = spawnSync(
+    "bash",
+    ["-c", 'source "$0"; filter_repos "$1" "$2" "$3"', FILTER_LIB, source, allowStr, denyStr],
+    { input: fullNames.join("\n") + "\n", encoding: "utf8" }
+  );
+  if (r.error || r.status !== 0) {
+    bail(
+      `REPOS-01 filter failed for source "${source}": ` +
+        `${r.error ? r.error.message : `exit ${r.status}`}. Refusing to register webhooks unfiltered.`
+    );
+  }
+  return r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
 
 interface CmdResult {
@@ -104,6 +139,8 @@ async function main(): Promise<void> {
   let failed = 0;
   let wouldRegister = 0;
   let wouldUpdate = 0;
+  let skippedDenied = 0;
+  const staleDenied: Array<{ full: string; ids: string[] }> = [];
 
   for (const src of cfg.sources) {
     const owner = src.name;
@@ -134,11 +171,36 @@ async function main(): Promise<void> {
       continue;
     }
 
-    console.log(`\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos`);
+    // REPOS-01: never put a hook on a repo the operator excluded.
+    const kept = filterRepos(owner, fullNames, src.allow, src.deny);
+    const denied = fullNames.filter((f) => !kept.includes(f));
+
+    console.log(
+      `\n📡  Source: ${owner} (${acctType}) — ${fullNames.length} repos` +
+        (denied.length ? `, ${denied.length} excluded by allow/deny` : "")
+    );
     console.log(`     webhook URL: ${url}`);
     if (dryRun) console.log(`     mode: DRY-RUN (no API calls will be made)`);
 
-    for (const full of fullNames) {
+    // A denied repo that still carries our hook predates the deny rule (or was
+    // added by hand). The listener rejects its pushes with 403, but the stale
+    // hook is worth removing — collect it for the summary.
+    for (const full of denied) {
+      const res = ghIgnoreStderr(
+        `repos/${full}/hooks --jq '.[] | select(.config.url == "${url}") | .id'`
+      );
+      const ids = res.ok
+        ? res.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+        : [];
+      if (ids.length > 0) staleDenied.push({ full, ids });
+      skippedDenied++;
+      console.log(
+        `   – SKIP ${full}: excluded by allow/deny` +
+          (ids.length ? ` — STALE HOOK id=${ids.join(",")}` : "")
+      );
+    }
+
+    for (const full of kept) {
       // List existing matching hook IDs (filtered by url).
       const listRes = ghIgnoreStderr(
         `repos/${full}/hooks --jq '.[] | select(.config.url == "${url}") | .id'`
@@ -223,6 +285,18 @@ async function main(): Promise<void> {
     console.log(
       `     ${registered} registered, ${alreadyPresent} already present, ${updated} updated, ${failed} failed`
     );
+  }
+  console.log(`     ${skippedDenied} skipped by allow/deny (REPOS-01)`);
+  if (staleDenied.length > 0) {
+    console.log(
+      `\n⚠️   ${staleDenied.length} excluded repo(s) still carry this webhook. The listener\n` +
+        `     rejects their pushes with 403, but remove the hooks to close the gap:`
+    );
+    for (const { full, ids } of staleDenied) {
+      for (const id of ids) {
+        console.log(`       gh api -X DELETE repos/${full}/hooks/${id}`);
+      }
+    }
   }
 
   process.exit(failed > 0 ? 1 : 0);

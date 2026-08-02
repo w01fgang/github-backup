@@ -327,6 +327,11 @@ See `config.example.json` for the full shape.
 - Globs use bash `case` syntax: `*`, `?`, `[..]`. A bare pattern like `foo-*`
   matches the repo basename (after the `owner/`); an `owner/name` pattern like
   `acme/foo-*` matches the full name verbatim.
+- Filters apply on **every** mirror path: the nightly cron sweep, the webhook
+  listener (a denied repo's push is rejected with `403`), and
+  `npm run register-webhooks` (a denied repo never gets a hook). All three
+  source the same `droplet/lib/filter-repos.sh`, so there is one glob
+  implementation and no drift between paths.
 
 ### Mirror layout
 

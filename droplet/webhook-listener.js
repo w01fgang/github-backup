@@ -6,7 +6,13 @@
 // /opt/github-backups/backup.env (re-read per request). See
 // .planning/phases/03-webhook/03-CONTEXT.md for the v1 design (D-01 ─ D-13, D-17)
 // and .planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md for the
-// multi-source rescope (D-01 ─ D-05, WEBHOOK-04 dropped 2026-05-17).
+// multi-source rescope (D-01 ─ D-05).
+//
+// REPOS-01 parity (WEBHOOK-04): a push is dispatched only when the repo also
+// survives that source's allow/deny globs. The globs are applied by the same
+// ${BACKUP_DIR}/lib/filter-repos.sh the cron path sources, so the two mirror
+// paths cannot drift. The filter fails CLOSED — an unreadable helper rejects
+// the push rather than mirroring a denied repo.
 //
 // HTTP contract:
 //   POST /webhook/github
@@ -17,18 +23,25 @@
 //     204                 — non-push, non-ping event acknowledged
 //     400                 — missing signature, bad JSON, missing owner/repo
 //     401                 — HMAC mismatch
+//     403                 — repo excluded by that source's allow/deny globs
 //     404                 — owner not in GITHUB_SOURCES OR unknown path
 //     405                 — method other than POST on /webhook/github
-//     500                 — backup.env unreadable OR systemd-run dispatch failure
+//     413                 — body exceeds WEBHOOK_MAX_BODY_BYTES (checked pre-auth)
+//     500                 — backup.env unreadable, filter helper unusable, OR
+//                           systemd-run dispatch failure
 //
 // Env (from systemd EnvironmentFile=/opt/github-backups/backup.env):
 //   WEBHOOK_SECRET        required (HMAC verification)
 //   BACKUP_DIR            default /opt/github-backups
 //   WEBHOOK_LISTEN_PORT   default 9100
 //   WEBHOOK_STATE_DIR     default /var/lib/github-backup
+//   WEBHOOK_MAX_BODY_BYTES  default 2097152 (2 MiB) — pre-auth request-body cap
 //
 // Per-request read from /opt/github-backups/backup.env:
 //   GITHUB_SOURCES        whitespace-separated set of allowed owner logins.
+//   GITHUB_SOURCE_ALLOW_<SLOT> / GITHUB_SOURCE_DENY_<SLOT>
+//                         per-source globs; SLOT = owner uppercased with every
+//                         non-alphanumeric byte replaced by `_`.
 //
 // Output:
 //   stdout/stderr → systemd journal (journalctl -u github-backup-webhook).
@@ -89,6 +102,21 @@ const PORT = parseInt(process.env.WEBHOOK_LISTEN_PORT || "9100", 10);
 const BACKUP_DIR = process.env.BACKUP_DIR || "/opt/github-backups";
 const STATE_DIR = process.env.WEBHOOK_STATE_DIR || "/var/lib/github-backup";
 
+// Pre-auth request-body cap. Ports 80/443 are world-reachable, so every byte
+// buffered before the HMAC check is memory an unauthenticated caller controls
+// on a 1 GB droplet. GitHub caps webhook payloads at 25 MB; real push payloads
+// run in the tens of KB, so 2 MiB leaves ample headroom while bounding the
+// pre-auth footprint.
+const MAX_BODY_BYTES = (() => {
+  const raw = process.env.WEBHOOK_MAX_BODY_BYTES;
+  if (!raw) return 2 * 1024 * 1024;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    bail(`WEBHOOK_MAX_BODY_BYTES not a positive integer: ${raw}`);
+  }
+  return n;
+})();
+
 if (!SECRET) bail("WEBHOOK_SECRET not set (load /opt/github-backups/backup.env)");
 if (!Number.isFinite(PORT)) {
   bail(`WEBHOOK_LISTEN_PORT not a number: ${process.env.WEBHOOK_LISTEN_PORT}`);
@@ -99,6 +127,56 @@ fs.mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
 const LAST_EVENT_PATH = path.join(STATE_DIR, "last-webhook-event.json");
 const SYNC_SCRIPT = path.join(BACKUP_DIR, "sync-one-repo.sh");
 const ARG_RE = /^[A-Za-z0-9._-]+$/;
+const FILTER_LIB = path.join(BACKUP_DIR, "lib", "filter-repos.sh");
+
+/**
+ * Env-var slot for a source name. MUST match github-backup.sh's bash `slot()`
+ * and bootstrap-droplet.ts's `envSlot()` byte-for-byte: uppercase, then every
+ * non-alphanumeric char becomes `_`.
+ */
+function envSlot(name) {
+  return name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+}
+
+/**
+ * REPOS-01 (WEBHOOK-04): does <owner>/<repo> survive that source's globs?
+ *
+ * Delegates to the same `filter_repos` the cron path sources rather than
+ * reimplementing bash `case` glob semantics in JS — one implementation, no
+ * drift. Empty allow AND empty deny means no filter is configured for the
+ * source, which is pass-through (ROADMAP SC#5) and skips the subprocess.
+ *
+ * Throws when the helper cannot be run, so the caller fails CLOSED.
+ */
+function passesRepoFilter(owner, repo, env) {
+  const slot = envSlot(owner);
+  const allow = (env[`GITHUB_SOURCE_ALLOW_${slot}`] || "").trim();
+  const deny = (env[`GITHUB_SOURCE_DENY_${slot}`] || "").trim();
+  if (!allow && !deny) return true;
+
+  const full = `${owner}/${repo}`;
+  const r = spawnSync(
+    "/bin/bash",
+    [
+      "-c",
+      'source "$0"; printf \'%s\\n\' "$1" | filter_repos "$2" "$3" "$4"',
+      FILTER_LIB,
+      full,
+      owner,
+      allow,
+      deny,
+    ],
+    { encoding: "utf8" }
+  );
+  if (r.error || r.status !== 0) {
+    throw new Error(
+      `filter_repos unusable (${FILTER_LIB}): ${
+        r.error ? r.error.message : `exit ${r.status}`
+      }`
+    );
+  }
+  return r.stdout.trim() === full;
+}
 
 function writeLastEvent(obj) {
   const tmp = `${LAST_EVENT_PATH}.tmp.${process.pid}`;
@@ -140,9 +218,46 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Body cap runs BEFORE any buffering decision, so an unauthenticated caller
+  // cannot make the process hold more than MAX_BODY_BYTES.
   const chunks = [];
-  req.on("data", (c) => chunks.push(c));
+  let received = 0;
+  let stopped = false;
+
+  const rejectTooLarge = (reason, bytes) => {
+    if (stopped) return;
+    stopped = true;
+    res.writeHead(413, { Connection: "close" }).end();
+    logLine(req, 413, { reason, bytes, limit: MAX_BODY_BYTES });
+    req.destroy();
+  };
+
+  // Trust the declared length only to reject early; a lying/absent header is
+  // still caught by the streaming guard below.
+  const declared = Number.parseInt(req.headers["content-length"] || "", 10);
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    rejectTooLarge("content_length_too_large", declared);
+    return;
+  }
+
+  // A destroyed/aborted request surfaces here; swallow so the process-level
+  // uncaughtException handler stays for real faults.
+  req.on("error", () => {
+    stopped = true;
+  });
+
+  req.on("data", (c) => {
+    if (stopped) return;
+    received += c.length;
+    if (received > MAX_BODY_BYTES) {
+      rejectTooLarge("body_too_large", received);
+      return;
+    }
+    chunks.push(c);
+  });
+
   req.on("end", () => {
+    if (stopped) return;
     const buf = Buffer.concat(chunks);
     const event = req.headers["x-github-event"];
     const delivery = req.headers["x-github-delivery"] || "unknown";
@@ -191,10 +306,11 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    let backupEnv;
     let allowedSources;
     try {
-      const env = parseEnvFile(BACKUP_ENV_PATH);
-      const raw = env.GITHUB_SOURCES || "";
+      backupEnv = parseEnvFile(BACKUP_ENV_PATH);
+      const raw = backupEnv.GITHUB_SOURCES || "";
       allowedSources = new Set(raw.split(/\s+/).filter(Boolean));
       if (allowedSources.size === 0) {
         throw new Error("GITHUB_SOURCES empty or missing in backup.env");
@@ -214,6 +330,23 @@ const server = http.createServer((req, res) => {
     if (!ARG_RE.test(owner) || !ARG_RE.test(repo)) {
       res.writeHead(400).end();
       logLine(req, 400, { delivery, reason: "arg_shape" });
+      return;
+    }
+
+    // REPOS-01 parity (WEBHOOK-04). Shape-checked above, so the values handed
+    // to the helper are already constrained to [A-Za-z0-9._-].
+    let kept;
+    try {
+      kept = passesRepoFilter(owner, repo, backupEnv);
+    } catch (e) {
+      res.writeHead(500).end();
+      logLine(req, 500, { delivery, owner, repo, reason: "filter_unavailable" });
+      process.stderr.write(`WARN: ${e.message}\n`);
+      return;
+    }
+    if (!kept) {
+      res.writeHead(403).end();
+      logLine(req, 403, { delivery, owner, repo, reason: "repo_denied" });
       return;
     }
 
