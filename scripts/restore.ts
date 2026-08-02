@@ -28,7 +28,7 @@ import * as os from "os";
 import * as path from "path";
 import { loadConfig, loadDropletInfo, bail } from "./lib/config";
 import { sshFlags, runVisible, expandHome } from "./lib/ssh";
-import { listMirrorPaths, selectMirrors } from "./lib/mirror-path";
+import { findMirrors } from "./lib/mirror-path";
 
 /** `<owner>/<repo>` slug shape — same regex used in loadConfig for restoreTestRepo. */
 const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -86,13 +86,16 @@ if (fs.existsSync(workingClonePath)) {
 // Remote bare-mirror path on the droplet, matching droplet/github-backup.sh.
 // Multi-source layout: mirrors live under <backupDir>/<source>/<owner>_<repo>.git
 // and the source dir is not derivable from owner alone (a source may back up
-// repos owned by other accounts), so the droplet is asked for every mirror it
-// holds and the slug is matched against that list (D-08 — case-insensitively,
-// because mirror dirs carry GitHub's canonical casing and slugs need not).
+// repos owned by other accounts). The droplet is asked for the mirrors that
+// match this slug — case-insensitively, since mirror dirs carry GitHub's
+// canonical casing and slugs need not (D-08).
 let mirrorMatches: string[];
 try {
-  mirrorMatches = selectMirrors(
-    listMirrorPaths(cfg.backupDir, cfg.sshUser, info.ip, cfg.sshKeyPath),
+  mirrorMatches = findMirrors(
+    cfg.backupDir,
+    cfg.sshUser,
+    info.ip,
+    cfg.sshKeyPath,
     owner,
     repo
   );

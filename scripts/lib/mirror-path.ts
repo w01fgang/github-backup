@@ -9,55 +9,64 @@
  * carries the account's canonical casing — `Toprent-app/locale-editor` lands
  * at <backupDir>/<source>/Toprent-app_locale-editor.git. Slugs are
  * case-insensitive on github.com, so a slug typed into config.json or argv in
- * any other casing is still correct. Narrowing the listing with a
- * case-sensitive shell glob reported "no mirror" for those, which is why the
- * listing is now unfiltered and matched here (D-08).
+ * any other casing is still correct, and a case-sensitive shell glob reported
+ * "no mirror" for those (D-08).
  *
- * Both steps stay separate: `listMirrorPaths` owns the SSH round-trip,
- * `selectMirrors` is pure and unit-tested.
+ * The narrowing happens on the droplet, in one `find -iname`: it returns only
+ * the candidates, so the size of the reply is bounded by how many mirrors
+ * match the slug — never by how many the droplet holds. Listing everything and
+ * matching locally would have put a droplet with a large enough backup set
+ * over `execSync`'s output buffer, failing every restore with ENOBUFS.
+ *
+ * Every case-variant match is returned. Two mirrors differing only in case are
+ * one repo mirrored twice — GitHub changed its canonical casing and
+ * sync-one-repo.sh cloned the new path without removing the old — so at most
+ * one is current and the caller's ambiguity bail has to decide. Narrowing to
+ * an exact-case hit here would hand back whichever mirror the operator's
+ * spelling happened to match, silently stale half the time.
  */
 
-import { sshFlags, runCapture } from "./ssh";
+import { runCapture, sshFlags } from "./ssh";
 
 /**
- * Every bare mirror on the droplet, one absolute path per entry.
+ * The droplet-side search for one slug's mirrors.
  *
- * `|| true`: an unmatched glob makes `ls` exit non-zero, which would surface
- * as an SSH error. Forcing exit 0 lets an empty droplet reach the caller's
- * "no mirror" bail instead. A real SSH failure still throws — ssh exits 255
- * before the remote command runs.
+ * Exported so tests can run it against a scratch tree instead of asserting on
+ * a reimplementation of `-iname` in TypeScript.
+ *
+ * `-mindepth 2 -maxdepth 2` pins the D-07 layout (<backupDir>/<source>/x.git)
+ * and keeps `find` out of the mirrors themselves. `|| true` swallows a missing
+ * backup dir so an unprovisioned droplet reaches the caller's "no mirror"
+ * bail instead of surfacing as an SSH failure. Both `owner` and `repo` are
+ * already constrained to [A-Za-z0-9._-] by their callers' slug validation, so
+ * the pattern carries no glob or shell metacharacters.
  */
-export function listMirrorPaths(
+export function mirrorFindCommand(
+  backupDir: string,
+  owner: string,
+  repo: string
+): string {
+  return (
+    `find ${backupDir} -mindepth 2 -maxdepth 2 -type d ` +
+    `-iname '${owner}_${repo}.git' 2>/dev/null || true`
+  );
+}
+
+/** Absolute paths of every mirror on the droplet whose name matches the slug. */
+export function findMirrors(
   backupDir: string,
   sshUser: string,
   ip: string,
-  keyPath: string
-): string[] {
-  return runCapture(
-    `ssh ${sshFlags(keyPath)} ${sshUser}@${ip} ` +
-      `'ls -1d ${backupDir}/*/*.git 2>/dev/null || true'`
-  )
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/**
- * Mirrors matching `<owner>_<repo>.git`, case-insensitively.
- *
- * Every casing of a slug names the same repository on github.com, so two
- * mirrors differing only in case are never two different repos — they are one
- * repo mirrored twice, and at most one of them is current. That happens when
- * GitHub reports new canonical casing and `sync-one-repo.sh` clones the newly
- * cased path without removing the old one. Returning both keeps the caller's
- * ambiguity bail in charge: silently honouring whichever casing the operator
- * happened to type would restore stale data without a word.
- */
-export function selectMirrors(
-  paths: string[],
+  keyPath: string,
   owner: string,
   repo: string
 ): string[] {
-  const wanted = `${owner}_${repo}.git`.toLowerCase();
-  return paths.filter((p) => p.slice(p.lastIndexOf("/") + 1).toLowerCase() === wanted);
+  return runCapture(
+    `ssh ${sshFlags(keyPath)} ${sshUser}@${ip} ` +
+      `'${mirrorFindCommand(backupDir, owner, repo)}'`
+  )
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .sort();
 }
