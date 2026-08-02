@@ -2,9 +2,9 @@
 
 ## 1. What this is
 
-Source comments across `scripts/` and `droplet/` cite short identifiers — `D-07`, `SC#4`, `REPOS-01`, `NR-08`, and the like — whose definitions lived in `.planning/`, which has since been deleted. This file is the surviving definition of record for every one of those identifiers: what each one means, stated in the present tense, and where it is enforced in code today.
+Source comments across `scripts/` and `droplet/` cite short identifiers — `D-07`, `SC#4`, `REPOS-01`, `NR-08`, and the like. This file is the definition of record for every one of them: what each means, stated in the present tense, and where it is enforced in code today. It is self-contained by design, so the planning tree those definitions were extracted from can be removed without stranding a single comment.
 
-`D-xx` and (mostly) `SC#N` identifiers are **phase-scoped** — phase 03's `D-16` and phase 06's `D-16` are unrelated decisions that happen to share a number. Entries below are grouped by the phase whose `.planning/phases/*/…-CONTEXT.md` (or, for v1.0 phases, `.planning/milestones/v1.0-phases/*/…-CONTEXT.md`) originally defined them. `NR-xx` and `REQ-ID`-style identifiers (`REPOS-01`, `WEBHOOK-03`, …) are global — one definition, no phase suffix needed.
+`D-xx` and (mostly) `SC#N` identifiers are **phase-scoped** — phase 03's `D-16` and phase 06's `D-16` are unrelated decisions that happen to share a number. Entries below are grouped by the phase that defined them. `NR-xx` and `REQ-ID`-style identifiers (`REPOS-01`, `WEBHOOK-03`, …) are global — one definition, no phase suffix needed.
 
 ## 2. Requirements
 
