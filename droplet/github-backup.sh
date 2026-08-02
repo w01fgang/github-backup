@@ -62,7 +62,7 @@ ENV_FILE="${BACKUP_DIR}/backup.env"
 # STATE_DIR is created by bootstrap.sh with mode 700. last-run.json is the
 # canonical "did the last run succeed?" surface read by github-backup-status.sh
 # and `npm run status`. Schema and atomic-write contract locked in
-# .planning/phases/02-monitoring/02-01-PLAN.md.
+# docs/DECISIONS.md (phase 02 — monitoring).
 STATE_DIR="${STATE_DIR:-/var/lib/github-backup}"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REPOS_JSON_ROWS=()

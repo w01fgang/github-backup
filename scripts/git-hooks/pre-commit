@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # scripts/git-hooks/pre-commit
 #
-# Phase 8 (MANIFEST-03 / D-07 / D-08): enforce that README.md's
-# droplet-manifest managed section is in sync with scripts/lib/droplet-manifest.ts
-# before the commit lands locally. The CI workflow (.github/workflows/sync-check.yml)
+# Phase 8 (MANIFEST-03 / D-07 / D-08): enforce that the STAGED README.md's
+# droplet-manifest managed section matches the STAGED
+# scripts/lib/droplet-manifest.ts before the commit lands locally — i.e. it
+# validates the tree that `git commit` is about to record (via `git show
+# :<path>`, falling back to HEAD for a path with no index entry), not
+# whatever happens to be sitting in the working tree. Staging a manifest
+# change without re-staging the regenerated README fails this hook even if
+# the working-tree README already looks correct. The CI workflow
+# (.github/workflows/sync-check.yml) runs the filesystem-mode check and
 # catches --no-verify bypasses.
 #
 # Installation: `npm install` triggers the `prepare` script which copies this
@@ -18,7 +24,7 @@ if [ ! -f scripts/sync-readme-manifest.ts ]; then
   exit 0
 fi
 
-if ! npx --no-install tsx scripts/sync-readme-manifest.ts --check; then
-  echo "error: README.md droplet-manifest section is stale; run 'npm run sync:readme' and re-stage" >&2
+if ! npx --no-install tsx scripts/sync-readme-manifest.ts --check --staged; then
+  echo "error: the staged README.md droplet-manifest section is stale; run 'npm run sync:readme' and re-stage both README.md and scripts/lib/droplet-manifest.ts" >&2
   exit 1
 fi

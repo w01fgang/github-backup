@@ -27,6 +27,8 @@ Any standard `git clone` command that accepts a path works against them over SSH
 ```
 github-backup/
 ├── README.md
+├── docs/DECISIONS.md          ← what the D-xx / SC# / REQ ids in code comments mean
+├── tests/                     ← hermetic unit tests (`npm test`, no droplet needed)
 ├── config.example.json        ← copy this to config.json and fill in values
 ├── package.json
 ├── tsconfig.json
@@ -183,10 +185,13 @@ The flow at backup time is:
 3. `git clone --mirror https://github.com/...` asks for credentials.
 4. The credential helper (`gh auth git-credential`) returns the token.
 
-**Token rotation**: if you issue a new PAT, re-run bootstrap:
+**Token rotation**: if you issue a new PAT, re-run bootstrap with
+`--rotate-env` (see [Re-running bootstrap is safe](#re-running-bootstrap-is-safe)
+— without it the existing `backup.env` is preserved and the new token
+never lands):
 
 ```bash
-GITHUB_TOKEN=ghp_newtoken npm run bootstrap-droplet
+GITHUB_TOKEN=ghp_newtoken npm run bootstrap-droplet -- --rotate-env
 ```
 
 ### Alternative: SSH key authentication (advanced)
@@ -352,10 +357,13 @@ so the script refuses and tells you to run the migration tool explicitly:
 ### Upgrading from a Phase-1 single-source droplet
 
 1. Set `githubSources` in `config.json` to your source name(s).
-2. Re-run `GITHUB_TOKEN=… npm run bootstrap-droplet` to push the new
-   `backup.env` (with `GITHUB_SOURCES` and per-source allow/deny lines)
-   and create the per-source mirror subdirs. Existing mirrors are left
-   in place at this stage.
+2. Re-run `GITHUB_TOKEN=… npm run bootstrap-droplet -- --rotate-env` to
+   push the new `backup.env` (with `GITHUB_SOURCES` and per-source
+   allow/deny lines) and create the per-source mirror subdirs. Existing
+   mirrors are left in place at this stage. **`--rotate-env` is required**
+   — without it the droplet's existing `backup.env` is preserved untouched
+   (see [Re-running bootstrap is safe](#re-running-bootstrap-is-safe)) and
+   the new source list never lands.
 3. **Single-source upgrade:** trigger any backup run — `github-backup.sh`
    detects the legacy layout, moves every top-level `*.git` under
    `${BACKUP_DIR}/<legacy>/`, then proceeds normally. No manual command.
@@ -436,8 +444,8 @@ In `config.json`:
 npm run create-droplet
 
 # 2. Bootstrap the droplet — installs Caddy, Node, cron, systemd unit;
-#    generates WEBHOOK_SECRET and echoes it to stdout exactly once
-#    (record it now — preserved across re-runs but never re-echoed).
+#    generates WEBHOOK_SECRET and writes it only to backup.env (mode 0600)
+#    on the droplet. It is never printed — step 3 reads it over SSH.
 GITHUB_TOKEN=ghp_… npm run bootstrap-droplet
 
 # 3. Register webhooks on every repo of cfg.githubUserOrOrg.
@@ -456,9 +464,12 @@ GITHUB_TOKEN=ghp_… npm run bootstrap-droplet -- --rotate-webhook-secret
 npm run register-webhooks -- --update
 ```
 
-The first command regenerates `WEBHOOK_SECRET` on the droplet and echoes
-the new value; the second PATCHes every existing GitHub webhook with the
-new secret. Skipping step 2 means GitHub keeps signing with the OLD secret
+`--rotate-webhook-secret` rewrites `backup.env` on its own — it does not
+need `--rotate-env` — but it still requires `GITHUB_TOKEN` to be set,
+since any `backup.env` rewrite regenerates the whole file. The first
+command regenerates `WEBHOOK_SECRET` on the droplet, writing it only to
+`backup.env`; the second PATCHes every existing GitHub webhook with the new
+secret. Skipping step 2 means GitHub keeps signing with the OLD secret
 and the listener rejects every event with 401.
 
 ### Live tail
@@ -492,8 +503,10 @@ been bootstrapped, the on-droplet `backup.env` (which holds your
 A line like `▸ /opt/github-backups/backup.env exists on droplet —
 preserving` confirms the skip.
 
-To deliberately rotate your PAT or change `cronSchedule` /
-`githubUserOrOrg` in `config.json`:
+To deliberately overwrite `backup.env` — rotating your PAT, changing
+`githubSources` (including per-source `repos.allow` / `repos.deny`
+filters), or changing `cronSchedule` / `githubUserOrOrg` in
+`config.json` — pass `--rotate-env`:
 
 ```bash
 GITHUB_TOKEN=<new_pat> npm run bootstrap-droplet -- --rotate-env
@@ -697,9 +710,10 @@ The droplet needs ~30–60 s after becoming "active" for sshd to start. The
 `waitForSsh` function in `bootstrap-droplet.ts` handles this automatically.
 
 **git clone fails with "authentication required"**
-The PAT in `backup.env` may have expired. Update it:
+The PAT in `backup.env` may have expired. Update it (`--rotate-env` is
+required — see [Re-running bootstrap is safe](#re-running-bootstrap-is-safe)):
 ```bash
-GITHUB_TOKEN=ghp_newtoken npm run bootstrap-droplet
+GITHUB_TOKEN=ghp_newtoken npm run bootstrap-droplet -- --rotate-env
 ```
 
 **Backup script fails for private repos**

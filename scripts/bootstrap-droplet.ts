@@ -20,6 +20,7 @@
  *   - GITHUB_TOKEN env var must be set on first-run or with --rotate-env
  */
 
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -31,6 +32,14 @@ import { required as manifestRequired, optional as manifestOptional } from "./li
 // ─────────────────────────────────────────────────────────────────────────────
 // backup.env generator
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Source-name → env-var slot. Matches droplet/github-backup.sh's bash `slot()`
+ * and droplet/webhook-listener.js's `envSlot()` byte-for-byte: uppercase, then
+ * replace every non-alphanumeric char with `_`. NO trailing-underscore strip.
+ */
+export const envSlot = (n: string): string =>
+  n.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 
 /**
  * Write a temporary backup.env to the OS temp dir.
@@ -74,12 +83,6 @@ function writeBackupEnv(
   // githubSources are missing/empty).
   const sourceNames = cfg.sources.map((s) => s.name);
   const legacyFirst = sourceNames[0]; // D-04 back-compat with not-yet-upgraded droplet
-
-  // Slot algorithm MUST match droplet/github-backup.sh's bash slot()
-  // byte-for-byte: uppercase, then replace every non-alphanumeric char
-  // with `_`. NO trailing-underscore strip.
-  const envSlot = (n: string): string =>
-    n.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 
   const filterLines: string[] = [];
   for (const s of cfg.sources) {
@@ -130,20 +133,27 @@ interface ResolveSecretArgs {
  * Default (rotate=false):
  *   1. SSH to droplet, grep WEBHOOK_SECRET= from /opt/github-backups/backup.env.
  *   2. If a well-shaped 64-hex value is found, preserve it. No stdout echo.
- *   3. If missing or malformed, generate fresh + echo to operator once.
+ *   3. If missing or malformed, generate fresh. No stdout echo.
  *
  * --rotate-webhook-secret:
- *   Always regenerate fresh + echo + print re-register reminder.
+ *   Always regenerate fresh, print a re-register reminder. No stdout echo.
  *
- * The secret lives only on the droplet; this helper neither caches nor
- * persists it locally beyond the in-process call to writeBackupEnv.
+ * The secret is never printed to stdout or stderr. It is written to
+ * /opt/github-backups/backup.env (mode 0600) on the droplet, and
+ * `npm run register-webhooks -- --update` retrieves it over SSH. This
+ * helper itself neither caches nor persists it locally beyond the
+ * in-process call to writeBackupEnv.
  */
 function resolveWebhookSecret(args: ResolveSecretArgs): string {
   if (args.rotate) {
     const fresh = crypto.randomBytes(32).toString("hex");
     console.log(`\n🔁  --rotate-webhook-secret: regenerating WEBHOOK_SECRET`);
-    console.log(`\n   NEW WEBHOOK SECRET (record this — needed for register-webhooks --update):`);
-    console.log(`     ${fresh}`);
+    console.log(
+      `\n   New WEBHOOK_SECRET written to /opt/github-backups/backup.env (mode 0600) on the droplet.`
+    );
+    console.log(
+      `   Need the raw value? ssh ${args.sshUser}@${args.dropletIp} 'grep ^WEBHOOK_SECRET= /opt/github-backups/backup.env'`
+    );
     console.log(
       `\n   Reminder: run \`npm run register-webhooks -- --update\` to push the new secret to GitHub.\n`
     );
@@ -173,8 +183,13 @@ function resolveWebhookSecret(args: ResolveSecretArgs): string {
   }
   const fresh = crypto.randomBytes(32).toString("hex");
   console.log(`\n🆕  Generating fresh WEBHOOK_SECRET (first-run or missing-on-droplet)`);
-  console.log(`\n   WEBHOOK SECRET (record this — needed for register-webhooks):`);
-  console.log(`     ${fresh}\n`);
+  console.log(
+    `\n   Written to /opt/github-backups/backup.env (mode 0600) on the droplet; ` +
+      `\`npm run register-webhooks -- --update\` reads it over SSH.`
+  );
+  console.log(
+    `   Need the raw value? ssh ${args.sshUser}@${args.dropletIp} 'grep ^WEBHOOK_SECRET= /opt/github-backups/backup.env'\n`
+  );
   return fresh;
 }
 
@@ -184,6 +199,39 @@ function resolveWebhookSecret(args: ResolveSecretArgs): string {
 
 function hasFlag(name: string): boolean {
   return process.argv.slice(2).includes(name);
+}
+
+/**
+ * Determine the local commit deployed by this bootstrap run.
+ *
+ * Returns the full HEAD sha, or "unknown" when git is unavailable or the
+ * command fails. Suffixes "-dirty" when `git status --porcelain` reports
+ * uncommitted local changes, so the droplet marker reflects code that may
+ * not match any committed sha.
+ */
+function resolveDeployedCommit(): string {
+  let sha = "unknown";
+  try {
+    const r = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
+    if (r.status === 0) {
+      const out = (r.stdout ?? "").trim();
+      if (out) sha = out;
+    }
+  } catch {
+    // best-effort; sha stays "unknown"
+  }
+  if (sha === "unknown") {
+    return sha;
+  }
+  try {
+    const status = spawnSync("git", ["status", "--porcelain"], { encoding: "utf8" });
+    if (status.status === 0 && (status.stdout ?? "").trim() !== "") {
+      sha = `${sha}-dirty`;
+    }
+  } catch {
+    // best-effort; treat as clean
+  }
+  return sha;
 }
 
 async function main(): Promise<void> {
@@ -224,6 +272,15 @@ async function main(): Promise<void> {
   console.log(`\n📁  Creating remote directory: ${backupDir}`);
   sshRun(ip, user, keyPath, `mkdir -p "${backupDir}"`);
 
+  const deployedCommit = resolveDeployedCommit();
+  console.log(`\n🏷️   Writing deployed-commit marker: ${deployedCommit}`);
+  sshRun(
+    ip,
+    user,
+    keyPath,
+    `printf "%s\\n" "${deployedCommit}" > "${backupDir}/.deployed-commit" && chmod 0644 "${backupDir}/.deployed-commit"`
+  );
+
   // First-run probe (D-03): the on-droplet backup.env is the only
   // authoritative signal of "has this droplet been bootstrapped before".
   // Probe failure (SSH transport error, exit 255) propagates out of
@@ -240,13 +297,18 @@ async function main(): Promise<void> {
     );
   }
   const envExists = probe === "present";
-  const willUpload = !envExists || rotateEnv;
+  // --rotate-webhook-secret is only honoured by the upload branch below, so it
+  // must open that branch on its own. Otherwise the flag is a silent no-op on
+  // an already-bootstrapped droplet: the operator is told the secret rotated
+  // while the droplet keeps the old one and GitHub keeps signing with it.
+  const willUpload = !envExists || rotateEnv || rotateWebhook;
 
   if (willUpload) {
     if (!githubToken) {
-      const hint = rotateEnv
-        ? " (--rotate-env requires GITHUB_TOKEN to be set)"
-        : "";
+      const hint =
+        rotateEnv || rotateWebhook
+          ? ` (${rotateEnv ? "--rotate-env" : "--rotate-webhook-secret"} rewrites backup.env, which requires GITHUB_TOKEN)`
+          : "";
       bail(
         "GITHUB_TOKEN environment variable is not set (or is empty after trim).\n" +
           "    Usage: GITHUB_TOKEN=<your_pat> npm run bootstrap-droplet" +
@@ -257,8 +319,9 @@ async function main(): Promise<void> {
     // ── Resolve webhook secret (preserve on re-bootstrap, opt-in rotation) ──
     // D-07/D-09: default path reads the existing WEBHOOK_SECRET over SSH and
     // preserves it (so registered GitHub webhooks keep working across re-runs).
-    // --rotate-webhook-secret generates a fresh value, echoes it once, and
-    // reminds the operator to re-push to GitHub via register-webhooks --update.
+    // --rotate-webhook-secret generates a fresh value, writes it to the
+    // droplet's backup.env (never echoed), and reminds the operator to
+    // re-push it to GitHub via register-webhooks --update.
     const webhookSecret = resolveWebhookSecret({
       rotate: rotateWebhook,
       sshUser: user,
@@ -350,7 +413,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((err) => {
-  console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
+    process.exit(1);
+  });
+}

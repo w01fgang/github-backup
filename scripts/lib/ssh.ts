@@ -20,12 +20,22 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Run a local command, streaming all output (stdout + stderr) to the terminal.
- * Throws on non-zero exit.
+ * Run a local command, streaming all output to the terminal. Throws on
+ * non-zero exit.
+ *
+ * `stdoutTo: "stderr"` routes the child's stdout to our stderr instead of
+ * inheriting ours. Callers that reserve their own stdout for machine-readable
+ * output need this: a child that chatters on stdout would otherwise corrupt
+ * that contract.
  */
-export function runVisible(cmd: string): void {
+export function runVisible(
+  cmd: string,
+  stdoutTo: "stdout" | "stderr" = "stdout"
+): void {
   try {
-    execSync(cmd, { stdio: "inherit" });
+    execSync(cmd, {
+      stdio: ["inherit", stdoutTo === "stderr" ? 2 : "inherit", "inherit"],
+    });
   } catch (err: unknown) {
     const detail =
       err instanceof Error

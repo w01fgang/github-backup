@@ -8,7 +8,7 @@
  * preserved). Exits 0 only on full pass; fail-fast with named bail
  * message on first failure.
  *
- * Decisions captured in .planning/phases/04-restore/04-CONTEXT.md:
+ * Decisions captured in docs/DECISIONS.md (phase 04 — restore):
  *  - D-01: test repo selection via config.restoreTestRepo (optional;
  *    bails loud if unset, with hint pointing at the field).
  *  - D-02: ref-equivalence via sorted `git for-each-ref` byte-equality
@@ -52,7 +52,7 @@ import { loadConfig, loadDropletInfo, bail } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
 
 const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-const RESTORE_HANDSHAKE_RE = /^RESTORE_LOCAL_MIRROR=(.+)$/m;
+const RESTORE_HANDSHAKE_RE = /^RESTORE_LOCAL_MIRROR=(.+)$/;
 
 /** Local assert — fail-fast. Prints ✓ on pass, ✗ + exit 1 on fail. */
 function assert(cond: boolean, msg: string): void {
@@ -98,9 +98,10 @@ const restoreRoot = fs.mkdtempSync(
 const target = path.join(restoreRoot, "working");
 console.log(`   Restoring ${slug} into ${target}…`);
 
-// Pipe stdout so we can parse the RESTORE_LOCAL_MIRROR= handshake while still
-// letting the helper print to the user. stderr stays on inherit so the
-// operator sees git's progress output.
+// Pipe stdout only — restore.ts writes exactly one thing there: the
+// RESTORE_LOCAL_MIRROR= handshake, as stdout's first line. Progress and the
+// success summary go to the helper's own stderr, which stays on inherit so
+// the operator sees them directly as they happen.
 const r = spawnSync("npm", ["run", "restore", "--", slug, target], {
   stdio: ["inherit", "pipe", "inherit"],
   env: process.env,
@@ -108,7 +109,8 @@ const r = spawnSync("npm", ["run", "restore", "--", slug, target], {
 });
 
 const restoreStdout = r.stdout ?? "";
-// Echo helper stdout so the operator sees the success summary too.
+// Echo the handshake back to our own stdout too, in case anything pipes
+// verify:phase-4's stdout looking for it.
 if (restoreStdout) process.stdout.write(restoreStdout);
 
 if (r.status !== 0) {
@@ -120,12 +122,16 @@ if (r.status !== 0) {
 }
 assert(r.status === 0, `npm run restore -- ${slug} ${target} exit 0`);
 
-// Parse the inter-plan handshake from helper stdout (plan 04-01 task 2 step 8).
-const handshake = restoreStdout.match(RESTORE_HANDSHAKE_RE);
+// Parse the inter-plan handshake off stdout's FIRST line — restore.ts's
+// stdout contract reserves that line exclusively for the handshake, so
+// anything else there is a contract violation, not a line to search past.
+const firstStdoutLine = restoreStdout.split("\n", 1)[0] ?? "";
+const handshake = firstStdoutLine.match(RESTORE_HANDSHAKE_RE);
 if (!handshake) {
   console.error(
-    `\n✗ helper did not print "RESTORE_LOCAL_MIRROR=<path>" handshake on ` +
-      `stdout. Temp directory left at: ${restoreRoot}`
+    `\n✗ helper's first stdout line was not the "RESTORE_LOCAL_MIRROR=<path>" ` +
+      `handshake (got: ${JSON.stringify(firstStdoutLine)}). Temp directory ` +
+      `left at: ${restoreRoot}`
   );
   process.exit(1);
 }

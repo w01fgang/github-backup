@@ -25,3 +25,33 @@ jobs:
 
       - name: Verify README droplet-manifest section is in sync
         run: npm run check:readme
+
+  checks:
+    name: Type-check, syntax-check, and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check TypeScript
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Syntax-check droplet Node scripts
+        run: find droplet -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Syntax-check droplet and pre-commit bash scripts
+        run: |
+          find droplet -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          bash -n scripts/git-hooks/pre-commit
+
+      - name: Run tests
+        run: npm test

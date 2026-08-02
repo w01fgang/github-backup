@@ -7,7 +7,7 @@
  * has historically documented inline. Single source of truth for the restore
  * dance — README copy-paste and scripts/verify/phase-4.ts both invoke this.
  *
- * Decisions captured in .planning/phases/04-restore/04-CONTEXT.md:
+ * Decisions captured in docs/DECISIONS.md (phase 04 — restore):
  *  - D-04: TypeScript helper, not README copy-paste — centralises path
  *    derivation, fails loud on every error, single function-shaped target
  *    for verify:phase-4.
@@ -137,25 +137,27 @@ const mirrorCmd =
   `${envPrefix} git clone --mirror ` +
   `"${cfg.sshUser}@${info.ip}:${remoteMirrorPath}" ` +
   `"${localMirrorPath}"`;
-console.log(`\n→ Cloning bare mirror from droplet:\n  ${mirrorCmd}\n`);
-runVisible(mirrorCmd);
+console.error(`\n→ Cloning bare mirror from droplet:\n  ${mirrorCmd}\n`);
+runVisible(mirrorCmd, "stderr");
 
 // --- step B: working clone from local bare mirror --------------------------
 const workingCmd = `git clone "${localMirrorPath}" "${workingClonePath}"`;
-console.log(`\n→ Cloning working copy from local mirror:\n  ${workingCmd}\n`);
-runVisible(workingCmd);
+console.error(`\n→ Cloning working copy from local mirror:\n  ${workingCmd}\n`);
+runVisible(workingCmd, "stderr");
 
 // --- success ---------------------------------------------------------------
-// FIRST stdout line on success MUST be the machine-readable handshake.
-// verify:phase-4 parses it via /^RESTORE_LOCAL_MIRROR=(.+)$/. Do NOT rename
-// or reorder this line.
+// stdout carries exactly one line on success: the machine-readable
+// RESTORE_LOCAL_MIRROR=<abs-path> handshake below, parsed by verify:phase-4
+// via /^RESTORE_LOCAL_MIRROR=(.+)$/ against stdout's first line. Every other
+// line — progress, the success summary, child-process chatter — goes to
+// stderr, so stdout never needs to be scanned or filtered by a consumer.
 console.log(`RESTORE_LOCAL_MIRROR=${localMirrorPath}`);
-console.log(`\n✓ Restored ${owner}/${repo}`);
-console.log(`    working clone: ${workingClonePath}`);
-console.log(`    local mirror : ${localMirrorPath}  (intermediate, safe to delete)`);
-console.log("");
-console.log(`    Inspect refs: git -C ${workingClonePath} branch -a && git -C ${workingClonePath} tag`);
-console.log(
+console.error(`\n✓ Restored ${owner}/${repo}`);
+console.error(`    working clone: ${workingClonePath}`);
+console.error(`    local mirror : ${localMirrorPath}  (intermediate, safe to delete)`);
+console.error("");
+console.error(`    Inspect refs: git -C ${workingClonePath} branch -a && git -C ${workingClonePath} tag`);
+console.error(
   `    Re-point to github.com if desired: ` +
     `git -C ${workingClonePath} remote set-url origin https://github.com/${owner}/${repo}.git`
 );

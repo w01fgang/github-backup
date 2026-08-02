@@ -22,53 +22,16 @@
  *   npm run register-webhooks -- --update    # also PATCH existing webhooks (post --rotate-webhook-secret)
  *   npm run register-webhooks -- --dry-run   # show what would happen, no API calls
  *
- * Refs: D-21, D-22 (.planning/phases/03-webhook/03-CONTEXT.md)
+ * Refs: D-21, D-22 (docs/DECISIONS.md, phase 03 — webhook)
  */
 
-import { execSync, spawnSync } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
+import { execSync } from "child_process";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { sshFlags, runCapture } from "./lib/ssh";
+import { filterRepos } from "./lib/filter-repos";
 
 function gh(args: string): string {
   return runCapture(`gh api ${args}`);
-}
-
-const FILTER_LIB = path.resolve(__dirname, "..", "droplet", "lib", "filter-repos.sh");
-
-/**
- * REPOS-01: keep only the repos a source's allow/deny globs admit.
- *
- * Delegates to the canonical `filter_repos` rather than reimplementing bash
- * `case` glob semantics in TS, so registration cannot drift from the cron path
- * or the droplet listener. Empty allow AND empty deny is pass-through
- * (ROADMAP SC#5) and skips the subprocess.
- */
-function filterRepos(
-  source: string,
-  fullNames: string[],
-  allow: string[],
-  deny: string[]
-): string[] {
-  const allowStr = allow.join(" ").trim();
-  const denyStr = deny.join(" ").trim();
-  if (!allowStr && !denyStr) return fullNames;
-  if (!fs.existsSync(FILTER_LIB)) {
-    bail(`REPOS-01 filter helper missing: ${FILTER_LIB}. Refusing to register webhooks unfiltered.`);
-  }
-  const r = spawnSync(
-    "bash",
-    ["-c", 'source "$0"; filter_repos "$1" "$2" "$3"', FILTER_LIB, source, allowStr, denyStr],
-    { input: fullNames.join("\n") + "\n", encoding: "utf8" }
-  );
-  if (r.error || r.status !== 0) {
-    bail(
-      `REPOS-01 filter failed for source "${source}": ` +
-        `${r.error ? r.error.message : `exit ${r.status}`}. Refusing to register webhooks unfiltered.`
-    );
-  }
-  return r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
 
 interface CmdResult {
