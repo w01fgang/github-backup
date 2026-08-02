@@ -141,3 +141,35 @@ test("a backupDir that is a symlink to the real volume still resolves", () => {
     fs.rmSync(path.dirname(link), { recursive: true, force: true });
   }
 });
+
+test("a mirror that is itself a symlink is still found", () => {
+  // sync-one-repo.sh tests `[[ -d "${MIRROR_PATH}" ]]`, which follows the
+  // link, so an operator who moved one heavy mirror onto another volume and
+  // symlinked it in place still gets it updated every run. The search has to
+  // agree, or restore reports a mirror the backup path is actively maintaining
+  // as absent. -H is not enough here: it dereferences the starting path only,
+  // leaving a symlinked mirror as -type l.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "mirror-path-vol-"));
+  const target = path.join(other, "alice_moved.git");
+  fs.mkdirSync(target);
+  fs.symlinkSync(target, path.join(backupDir, "alice/alice_moved.git"), "dir");
+  try {
+    assert.deepEqual(search("alice", "moved"), ["alice/alice_moved.git"]);
+  } finally {
+    fs.rmSync(path.join(backupDir, "alice/alice_moved.git"), { force: true });
+    fs.rmSync(other, { recursive: true, force: true });
+  }
+});
+
+test("a dangling mirror symlink is not offered as a restore source", () => {
+  // Following links must not go so far that a broken one counts as a mirror:
+  // the caller would hand `git clone` a path it cannot read. Bailing with
+  // "no mirror" names the real problem.
+  const dead = path.join(backupDir, "alice/alice_vanished.git");
+  fs.symlinkSync(path.join(os.tmpdir(), "mirror-path-no-such-target"), dead, "dir");
+  try {
+    assert.deepEqual(search("alice", "vanished"), []);
+  } finally {
+    fs.rmSync(dead, { force: true });
+  }
+});

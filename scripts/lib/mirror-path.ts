@@ -34,11 +34,16 @@ import { runCapture, sshFlags } from "./ssh";
  * Exported so tests can run it against a scratch tree instead of asserting on
  * a reimplementation of `-iname` in TypeScript.
  *
- * `-H` dereferences the starting path, so a `backupDir` that is a symlink to
- * the real backup volume still resolves. README documents the field as "any
- * absolute path"; `find` defaults to `-P`, under which a symlinked root is
- * itself the only thing visited and nothing below it matches. `-H` stops
- * there — symlinks *inside* the tree stay unfollowed.
+ * `-L` resolves symlinks to their targets, which the shell glob this replaced
+ * did implicitly and `find`'s default `-P` does not. Two supported layouts
+ * depend on it: a `backupDir` pointing at a symlinked backup volume (README
+ * documents the field as any absolute path), and an individual mirror
+ * symlinked elsewhere — `sync-one-repo.sh` tests `[[ -d "${MIRROR_PATH}" ]]`,
+ * which follows the link, so it keeps such a mirror updated and the search
+ * has to keep finding it. `-H` covers only the first: it dereferences the
+ * starting path alone, leaving a symlinked mirror as `-type l` and invisible.
+ * A dangling symlink stays unmatched under `-L`, so the caller bails with
+ * "no mirror" rather than handing back a path `git clone` cannot read.
  *
  * `-mindepth 2 -maxdepth 2` pins the D-07 layout (<backupDir>/<source>/x.git)
  * and keeps `find` out of the mirrors themselves. `|| true` swallows a missing
@@ -53,7 +58,7 @@ export function mirrorFindCommand(
   repo: string
 ): string {
   return (
-    `find -H ${backupDir} -mindepth 2 -maxdepth 2 -type d ` +
+    `find -L ${backupDir} -mindepth 2 -maxdepth 2 -type d ` +
     `-iname '${owner}_${repo}.git' 2>/dev/null || true`
   );
 }
