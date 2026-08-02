@@ -158,9 +158,29 @@ assert(
 
 // --- Negative-test injection (D-07) ---------------------------------------
 if (injectRefMismatch) {
+  // Point the injected ref at an object the mirror definitely has. `HEAD` is
+  // not that object: a mirror whose upstream default branch was renamed keeps
+  // a symbolic HEAD pointing at a ref that no longer exists — `remote update
+  // --prune` in droplet/sync-one-repo.sh never refreshes it — and every other
+  // group here is happy with such a mirror. Resolving HEAD would fail the
+  // negative test for a reason that has nothing to do with the detector.
+  const firstRef = spawnSync(
+    "git",
+    ["-C", localBareMirrorPath, "for-each-ref", "--count=1", "--format=%(objectname)"],
+    { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }
+  );
+  const anchor = (firstRef.stdout ?? "").trim();
+  if (firstRef.status !== 0 || anchor.length === 0) {
+    bail(
+      `--inject-ref-mismatch: ${localBareMirrorPath} has no ref to anchor ` +
+        `${INJECTED_REF} to, so the mismatch cannot be staged.\n` +
+        `    ${(firstRef.stderr ?? "").trim()}`
+    );
+  }
+
   const inj = spawnSync(
     "git",
-    ["-C", localBareMirrorPath, "update-ref", INJECTED_REF, "HEAD"],
+    ["-C", localBareMirrorPath, "update-ref", INJECTED_REF, anchor],
     { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }
   );
   if (inj.status !== 0) {
@@ -170,9 +190,9 @@ if (injectRefMismatch) {
     );
   }
   console.log(
-    `\n⚑ --inject-ref-mismatch: wrote ${INJECTED_REF} into the restored bare ` +
-      `mirror only.\n   Group 2 must now report local-only count 1 and exit 1 — ` +
-      `that is the PASS condition for this run.`
+    `\n⚑ --inject-ref-mismatch: wrote ${INJECTED_REF} -> ${anchor} into the ` +
+      `restored bare mirror only.\n   Group 2 must now report local-only count ` +
+      `1 and exit 1 — that is the PASS condition for this run.`
   );
 }
 
