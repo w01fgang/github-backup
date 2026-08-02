@@ -385,11 +385,64 @@ function group4LocalWrapper(remoteJson: string): void {
   // The two snapshots are taken seconds apart, so every live-sampled field
   // drifts between them: staleness.last_run_age_seconds by whole seconds, and
   // disk.used_bytes / percent_used / mirror_bytes by whatever journald and the
-  // sync job wrote in between. Strip those before comparing — Group 3 already
-  // gates their accuracy against live df/du with explicit tolerances, and what
-  // Group 4 owns is that the local wrapper returns the droplet binary's own
-  // document. Do NOT strip the rest: last_run, staleness.state, disk.filesystem
-  // and disk.size_bytes must agree exactly.
+  // sync job wrote in between. Byte-equality over those four is unwinnable.
+  //
+  // Deleting them unchecked is not the answer either: Group 3 gates the REMOTE
+  // document only, so a wrapper that dropped or mangled them would sail through
+  // a comparison that had removed them from both sides. Each one is therefore
+  // asserted present, numeric and within a drift tolerance of the droplet's
+  // value, and only then stripped from the byte-equality pass that covers every
+  // remaining field (last_run, staleness.state, disk.filesystem, size_bytes, …).
+  //
+  // Tolerances mirror Group 3's live df/du gates: 1% on used bytes, 5% on the
+  // mirror total (a concurrent webhook sync can grow it mid-verify). percent_used
+  // is an integer percentage, so it gets 1 point absolute. The age field only
+  // advances — local is sampled after remote — and the whole run is a handful of
+  // SSH round-trips, so 300 s is a generous ceiling on a healthy verify.
+  const drift = (
+    label: string,
+    localV: unknown,
+    remoteV: unknown,
+    tolerance: number,
+    unit: "ratio" | "absolute"
+  ): void => {
+    assert(
+      typeof localV === "number" && Number.isFinite(localV),
+      `${label} present and numeric in local --json (got ${JSON.stringify(localV)})`
+    );
+    assert(
+      typeof remoteV === "number" && Number.isFinite(remoteV),
+      `${label} present and numeric in remote --json (got ${JSON.stringify(remoteV)})`
+    );
+    const l = localV as number;
+    const rm = remoteV as number;
+    const delta =
+      unit === "ratio"
+        ? Math.abs(l - rm) / Math.max(Math.abs(l), Math.abs(rm), 1)
+        : Math.abs(l - rm);
+    const budget = unit === "ratio" ? `${tolerance * 100}%` : `${tolerance}`;
+    assert(
+      delta <= tolerance,
+      `${label} local matches remote within ${budget} (local=${l} remote=${rm})`
+    );
+  };
+
+  const localDisk = (localParsed.disk ?? {}) as Record<string, unknown>;
+  const remoteDisk = (remoteParsed.disk ?? {}) as Record<string, unknown>;
+  drift(".disk.used_bytes", localDisk.used_bytes, remoteDisk.used_bytes, 0.01, "ratio");
+  drift(".disk.percent_used", localDisk.percent_used, remoteDisk.percent_used, 1, "absolute");
+  drift(".disk.mirror_bytes", localDisk.mirror_bytes, remoteDisk.mirror_bytes, 0.05, "ratio");
+
+  const localSt = (localParsed.staleness ?? {}) as Record<string, unknown>;
+  const remoteSt = (remoteParsed.staleness ?? {}) as Record<string, unknown>;
+  drift(
+    ".staleness.last_run_age_seconds",
+    localSt.last_run_age_seconds,
+    remoteSt.last_run_age_seconds,
+    300,
+    "absolute"
+  );
+
   const VOLATILE_DISK_FIELDS = ["used_bytes", "percent_used", "mirror_bytes"];
   const norm = (o: Record<string, unknown>): string => {
     const clone = JSON.parse(JSON.stringify(o)) as Record<string, unknown>;
@@ -412,7 +465,7 @@ function group4LocalWrapper(remoteJson: string): void {
   }
   assert(
     localCanon === remoteCanon,
-    "local --json output equals remote --json output (after stripping live-sampled staleness + disk fields)"
+    "local --json output equals remote --json output (live-sampled staleness + disk fields drift-checked above, then stripped)"
   );
 }
 
