@@ -560,6 +560,9 @@ The helper:
 3. Leaves the temp bare mirror in place (small, safe to delete, lets you
    re-clone offline without hitting the droplet again).
 
+The slug is matched case-insensitively: mirror directories carry the
+casing GitHub reports (`Myorg_myrepo.git`), and `myorg/myrepo` finds it.
+
 The restored working clone's `origin` points at the local bare mirror,
 not at github.com or the droplet. To repoint at github.com for everyday
 work:
