@@ -382,15 +382,24 @@ function group4LocalWrapper(remoteJson: string): void {
     return;
   }
 
-  // The two snapshots are taken seconds apart; staleness.last_run_age_seconds
-  // is the one field that drifts deterministically. Strip it before comparing.
-  // Do NOT strip the rest of the staleness block — disk + last_run + state
-  // must agree.
+  // The two snapshots are taken seconds apart, so every live-sampled field
+  // drifts between them: staleness.last_run_age_seconds by whole seconds, and
+  // disk.used_bytes / percent_used / mirror_bytes by whatever journald and the
+  // sync job wrote in between. Strip those before comparing — Group 3 already
+  // gates their accuracy against live df/du with explicit tolerances, and what
+  // Group 4 owns is that the local wrapper returns the droplet binary's own
+  // document. Do NOT strip the rest: last_run, staleness.state, disk.filesystem
+  // and disk.size_bytes must agree exactly.
+  const VOLATILE_DISK_FIELDS = ["used_bytes", "percent_used", "mirror_bytes"];
   const norm = (o: Record<string, unknown>): string => {
     const clone = JSON.parse(JSON.stringify(o)) as Record<string, unknown>;
     const st = clone.staleness as Record<string, unknown> | undefined;
     if (st && "last_run_age_seconds" in st) {
       delete st.last_run_age_seconds;
+    }
+    const disk = clone.disk as Record<string, unknown> | undefined;
+    if (disk) {
+      for (const f of VOLATILE_DISK_FIELDS) delete disk[f];
     }
     return JSON.stringify(clone);
   };
@@ -403,7 +412,7 @@ function group4LocalWrapper(remoteJson: string): void {
   }
   assert(
     localCanon === remoteCanon,
-    "local --json output equals remote --json output (after stripping staleness.last_run_age_seconds)"
+    "local --json output equals remote --json output (after stripping live-sampled staleness + disk fields)"
   );
 }
 
