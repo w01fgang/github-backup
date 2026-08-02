@@ -111,10 +111,12 @@ if (mirrorMatches.length === 0) {
 }
 if (mirrorMatches.length > 1) {
   bail(
-    `Ambiguous: ${owner}/${repo} is mirrored under ${mirrorMatches.length} sources:\n` +
+    `Ambiguous: ${owner}/${repo} resolves to ${mirrorMatches.length} mirrors:\n` +
       mirrorMatches.map((m) => `  ${m}`).join("\n") +
-      `\nThe same repo is backed up by more than one source — refusing to guess. ` +
-      `Remove the stale mirror, or restore the chosen path directly.`
+      `\nEither more than one source backs this repo up, or the same repo is ` +
+      `mirrored under two casings after GitHub changed its canonical spelling ` +
+      `— one of those is stale. Refusing to guess: delete the stale mirror, or ` +
+      `clone the chosen path directly.`
   );
 }
 const remoteMirrorPath = mirrorMatches[0];

@@ -51,21 +51,27 @@ test("the same repo under two sources is reported as ambiguous", () => {
   assert.equal(selectMirrors(twoSources, "alice", "shared").length, 2);
 });
 
-test("an exact-case match wins over a case-insensitive collision", () => {
-  // Two sources legitimately holding differently-cased dirs: naming one of
-  // them exactly is not ambiguous, so the caller must not be made to bail.
-  const collided = [
-    "/opt/github-backups/one/Alice_Shared.git",
-    "/opt/github-backups/two/alice_shared.git",
+test("a repo mirrored under two casings stays ambiguous, whichever casing is asked for", () => {
+  // GitHub changed the canonical casing and sync-one-repo.sh cloned the newly
+  // cased path without removing the old one, so one of these is stale. Every
+  // casing names the same repo, so honouring an exact-case hit would hand the
+  // operator whichever mirror their spelling happened to match — silently
+  // stale half the time. The caller must be told to choose.
+  const bothCasings = [
+    "/opt/github-backups/alice/Alice_Shared.git",
+    "/opt/github-backups/alice/alice_shared.git",
   ];
-  assert.deepEqual(selectMirrors(collided, "alice", "shared"), [
-    "/opt/github-backups/two/alice_shared.git",
-  ]);
-  assert.deepEqual(selectMirrors(collided, "Alice", "Shared"), [
-    "/opt/github-backups/one/Alice_Shared.git",
-  ]);
-  // Neither spelling is exact — both are candidates, caller bails.
-  assert.equal(selectMirrors(collided, "ALICE", "SHARED").length, 2);
+  for (const [owner, repo] of [
+    ["alice", "shared"],
+    ["Alice", "Shared"],
+    ["ALICE", "SHARED"],
+  ]) {
+    assert.equal(
+      selectMirrors(bothCasings, owner, repo).length,
+      2,
+      `slug ${owner}/${repo} must stay ambiguous`
+    );
+  }
 });
 
 test("an empty droplet listing resolves to no match rather than throwing", () => {

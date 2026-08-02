@@ -45,23 +45,19 @@ export function listMirrorPaths(
 /**
  * Mirrors matching `<owner>_<repo>.git`, case-insensitively.
  *
- * An exact-case match wins outright: two sources may legitimately hold
- * `Foo_bar.git` and `foo_bar.git`, and a slug that names one of them exactly
- * is not ambiguous. Only when nothing matches exactly does the
- * case-insensitive set stand in — where >1 entry is a genuine ambiguity for
- * the caller to reject.
+ * Every casing of a slug names the same repository on github.com, so two
+ * mirrors differing only in case are never two different repos — they are one
+ * repo mirrored twice, and at most one of them is current. That happens when
+ * GitHub reports new canonical casing and `sync-one-repo.sh` clones the newly
+ * cased path without removing the old one. Returning both keeps the caller's
+ * ambiguity bail in charge: silently honouring whichever casing the operator
+ * happened to type would restore stale data without a word.
  */
 export function selectMirrors(
   paths: string[],
   owner: string,
   repo: string
 ): string[] {
-  const wanted = `${owner}_${repo}.git`;
-  const exact = paths.filter((p) => p.slice(p.lastIndexOf("/") + 1) === wanted);
-  if (exact.length > 0) return exact;
-
-  const wantedLower = wanted.toLowerCase();
-  return paths.filter(
-    (p) => p.slice(p.lastIndexOf("/") + 1).toLowerCase() === wantedLower
-  );
+  const wanted = `${owner}_${repo}.git`.toLowerCase();
+  return paths.filter((p) => p.slice(p.lastIndexOf("/") + 1).toLowerCase() === wanted);
 }
