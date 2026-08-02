@@ -37,7 +37,14 @@ CRON_MARKER="# github-backup-managed"
 # We embed HOME and PATH inline so the cron entry is fully self-contained.
 # `gh auth git-credential` (used by git for HTTPS auth) reads the gh config
 # from $HOME/.config/gh/, so HOME must be correct.
-CRON_LINE="${CRON_SCHEDULE} HOME=/root PATH=/usr/local/bin:/usr/bin:/bin ${BACKUP_SCRIPT} >> ${LOG_FILE} 2>&1 ${CRON_MARKER}"
+#
+# stdout goes to /dev/null, NOT to the log: github-backup.sh and
+# sync-one-repo.sh already append every line they emit to ${LOG_FILE}
+# themselves (`log()` tees, git output is redirected). Appending stdout here
+# too wrote every cron-run line to the log twice. stderr is still captured —
+# it is the only channel carrying unexpected diagnostics (`unbound variable`,
+# `command not found`) that no writer routes to the log on its own.
+CRON_LINE="${CRON_SCHEDULE} HOME=/root PATH=/usr/local/bin:/usr/bin:/bin ${BACKUP_SCRIPT} >/dev/null 2>>${LOG_FILE} ${CRON_MARKER}"
 
 echo "  Schedule : ${CRON_SCHEDULE}"
 echo "  Script   : ${BACKUP_SCRIPT}"

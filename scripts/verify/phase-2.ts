@@ -231,7 +231,7 @@ function group1StateFile(cfg: Config, info: DropletInfo): void {
 function group2StatusBinary(
   cfg: Config,
   info: DropletInfo
-): { remoteJson: string } {
+): { remoteJson: string; remoteSampledAt: number } {
   console.log("\n— Group 2: droplet binary invariants (MON-01, D-01) —");
   const { sshUser: user, sshKeyPath: keyPath } = cfg;
 
@@ -246,6 +246,10 @@ function group2StatusBinary(
   const bogusRes = sshCaptureAllowFail(info.ip, user, keyPath, `bash ${REMOTE_STATUS_BIN} --bogus-flag`);
   assert(bogusRes.status === 64, `--bogus-flag exits 64 (got ${bogusRes.status})`);
 
+  // Wall-clock bracket for the age-drift check in Group 4: the remote snapshot
+  // samples its age somewhere inside this call, the local one inside its own,
+  // so elapsed time between the two brackets is the real drift budget.
+  const remoteSampledAt = Date.now();
   const jsonRes = sshCaptureAllowFail(info.ip, user, keyPath, `bash ${REMOTE_STATUS_BIN} --json`);
   assert(
     [0, 1, 2, 3].includes(jsonRes.status),
@@ -259,7 +263,7 @@ function group2StatusBinary(
   } catch (e) {
     console.error("Raw JSON stdout (truncated):", remoteJson.slice(0, 500));
     assert(false, `--json output parses as JSON (parse error: ${(e as Error).message})`);
-    return { remoteJson };
+    return { remoteJson, remoteSampledAt };
   }
   assert(parsed !== null && typeof parsed === "object", `--json output is a JSON object`);
 
@@ -289,7 +293,7 @@ function group2StatusBinary(
     `.disk.used_bytes >= 0 (got ${disk.used_bytes})`
   );
 
-  return { remoteJson };
+  return { remoteJson, remoteSampledAt };
 }
 
 // ── Group 3: disk-reporting invariants ────────────────────────────────────
@@ -354,7 +358,7 @@ function group3DiskReporting(
 }
 
 // ── Group 4: local wrapper end-to-end ─────────────────────────────────────
-function group4LocalWrapper(remoteJson: string): void {
+function group4LocalWrapper(remoteJson: string, remoteSampledAt: number): void {
   console.log("\n— Group 4: npm run status -- --json local wrapper (MON-01, D-01, D-02) —");
 
   const r = spawnSync(
@@ -362,6 +366,7 @@ function group4LocalWrapper(remoteJson: string): void {
     ["run", "status", "--silent", "--", "--json"],
     { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }
   );
+  const localSampledAt = Date.now();
 
   assert(r.status !== null, `npm run status exited with a status (signal=${String(r.signal)})`);
   assert(
@@ -382,15 +387,100 @@ function group4LocalWrapper(remoteJson: string): void {
     return;
   }
 
-  // The two snapshots are taken seconds apart; staleness.last_run_age_seconds
-  // is the one field that drifts deterministically. Strip it before comparing.
-  // Do NOT strip the rest of the staleness block — disk + last_run + state
-  // must agree.
+  // The two snapshots are taken seconds apart, so every live-sampled field
+  // drifts between them: staleness.last_run_age_seconds by whole seconds, and
+  // disk.used_bytes / percent_used / mirror_bytes by whatever journald and the
+  // sync job wrote in between. Byte-equality over those four is unwinnable.
+  //
+  // Deleting them unchecked is not the answer either: Group 3 gates the REMOTE
+  // document only, so a wrapper that dropped or mangled them would sail through
+  // a comparison that had removed them from both sides. Each one is therefore
+  // asserted present, numeric and within a drift tolerance of the droplet's
+  // value, and only then stripped from the byte-equality pass that covers every
+  // remaining field (last_run, staleness.state, disk.filesystem, size_bytes, …).
+  //
+  // Tolerances mirror Group 3's live df/du gates: 1% on used bytes, 5% on the
+  // mirror total (a concurrent webhook sync can grow it mid-verify). percent_used
+  // is an integer percentage, so it gets 1 point absolute. The age field only
+  // advances — local is sampled after remote — and the whole run is a handful of
+  // SSH round-trips, so 300 s is a generous ceiling on a healthy verify.
+  const drift = (
+    label: string,
+    localV: unknown,
+    remoteV: unknown,
+    tolerance: number,
+    unit: "ratio" | "absolute"
+  ): void => {
+    assert(
+      typeof localV === "number" && Number.isFinite(localV),
+      `${label} present and numeric in local --json (got ${JSON.stringify(localV)})`
+    );
+    assert(
+      typeof remoteV === "number" && Number.isFinite(remoteV),
+      `${label} present and numeric in remote --json (got ${JSON.stringify(remoteV)})`
+    );
+    const l = localV as number;
+    const rm = remoteV as number;
+    const delta =
+      unit === "ratio"
+        ? Math.abs(l - rm) / Math.max(Math.abs(l), Math.abs(rm), 1)
+        : Math.abs(l - rm);
+    const budget = unit === "ratio" ? `${tolerance * 100}%` : `${tolerance}`;
+    assert(
+      delta <= tolerance,
+      `${label} local matches remote within ${budget} (local=${l} remote=${rm})`
+    );
+  };
+
+  const localDisk = (localParsed.disk ?? {}) as Record<string, unknown>;
+  const remoteDisk = (remoteParsed.disk ?? {}) as Record<string, unknown>;
+  drift(".disk.used_bytes", localDisk.used_bytes, remoteDisk.used_bytes, 0.01, "ratio");
+  drift(".disk.percent_used", localDisk.percent_used, remoteDisk.percent_used, 1, "absolute");
+  drift(".disk.mirror_bytes", localDisk.mirror_bytes, remoteDisk.mirror_bytes, 0.05, "ratio");
+
+  const localSt = (localParsed.staleness ?? {}) as Record<string, unknown>;
+  const remoteSt = (remoteParsed.staleness ?? {}) as Record<string, unknown>;
+
+  // The age field advances with the clock, so its budget is measured rather
+  // than guessed. Both snapshots sample somewhere inside the bracketed window
+  // and each rounds to whole seconds, hence +2. A droplet with a large mirror
+  // tree widens that window by minutes all on its own — Group 3's recursive
+  // `du -sb` runs inside it, and the wrapper's snapshot runs another before
+  // sampling its age — which is why a fixed ceiling would fail healthy runs
+  // on exactly the droplets that need verifying most.
+  const windowSeconds = Math.ceil((localSampledAt - remoteSampledAt) / 1000) + 2;
+  drift(
+    ".staleness.last_run_age_seconds",
+    localSt.last_run_age_seconds,
+    remoteSt.last_run_age_seconds,
+    windowSeconds,
+    "absolute"
+  );
+
+  // Direction: the local snapshot is taken second, so its age cannot be lower.
+  // Skipped when a backup landed mid-verify — last_run then differs and the
+  // byte-equality below reports that directly, which is the useful diagnosis.
+  const sameRun =
+    JSON.stringify(localParsed.last_run) === JSON.stringify(remoteParsed.last_run);
+  if (sameRun) {
+    const localAge = localSt.last_run_age_seconds as number;
+    const remoteAge = remoteSt.last_run_age_seconds as number;
+    assert(
+      localAge >= remoteAge - 1,
+      `.staleness.last_run_age_seconds did not run backwards (local=${localAge} remote=${remoteAge})`
+    );
+  }
+
+  const VOLATILE_DISK_FIELDS = ["used_bytes", "percent_used", "mirror_bytes"];
   const norm = (o: Record<string, unknown>): string => {
     const clone = JSON.parse(JSON.stringify(o)) as Record<string, unknown>;
     const st = clone.staleness as Record<string, unknown> | undefined;
     if (st && "last_run_age_seconds" in st) {
       delete st.last_run_age_seconds;
+    }
+    const disk = clone.disk as Record<string, unknown> | undefined;
+    if (disk) {
+      for (const f of VOLATILE_DISK_FIELDS) delete disk[f];
     }
     return JSON.stringify(clone);
   };
@@ -403,7 +493,7 @@ function group4LocalWrapper(remoteJson: string): void {
   }
   assert(
     localCanon === remoteCanon,
-    "local --json output equals remote --json output (after stripping staleness.last_run_age_seconds)"
+    "local --json output equals remote --json output (live-sampled staleness + disk fields drift-checked above, then stripped)"
   );
 }
 
@@ -415,9 +505,9 @@ function main(): void {
 
   group0Preflight(cfg, info);
   group1StateFile(cfg, info);
-  const { remoteJson } = group2StatusBinary(cfg, info);
+  const { remoteJson, remoteSampledAt } = group2StatusBinary(cfg, info);
   group3DiskReporting(cfg, info, remoteJson);
-  group4LocalWrapper(remoteJson);
+  group4LocalWrapper(remoteJson, remoteSampledAt);
 
   console.log("\n✅  All Phase 2 assertions passed.\n");
 }

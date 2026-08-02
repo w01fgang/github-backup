@@ -97,10 +97,13 @@ log() {
 # ── Source Phase 6 helpers (D-05 + REPOS-01) ─────────────────────────────
 # detect_account_type <slug> → "User" | "Organization" (with default-on-error).
 # filter_repos <source> <allow_globs> <deny_globs>: stdin → stdout glob filter.
+# resolve_repo_endpoint <slug> <account-type> → the `gh api` repo-list path.
 # shellcheck source=lib/detect-account-type.sh
 source "${BACKUP_DIR}/lib/detect-account-type.sh"
 # shellcheck source=lib/filter-repos.sh
 source "${BACKUP_DIR}/lib/filter-repos.sh"
+# shellcheck source=lib/resolve-repo-endpoint.sh
+source "${BACKUP_DIR}/lib/resolve-repo-endpoint.sh"
 
 # Source-name → env slot helper. MUST match bootstrap-droplet.ts envSlot()
 # byte-for-byte: uppercase, then replace every non-alphanumeric char with `_`.
@@ -203,11 +206,10 @@ for SOURCE in "${SOURCES[@]}"; do
 
   # Detect account type via shared helper (D-05). Defaults to "User" on error.
   ACCOUNT_TYPE=$(detect_account_type "${SOURCE}")
+  API_ENDPOINT="$(resolve_repo_endpoint "${SOURCE}" "${ACCOUNT_TYPE}")"
   if [[ "${ACCOUNT_TYPE}" == "Organization" ]]; then
-    API_ENDPOINT="/orgs/${SOURCE}/repos?type=all&per_page=100"
     log "  Account type: Organisation"
   else
-    API_ENDPOINT="/users/${SOURCE}/repos?type=all&per_page=100"
     log "  Account type: User"
   fi
 

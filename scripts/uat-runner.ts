@@ -155,6 +155,7 @@ const SCENARIOS: Scenario[] = [
           // number disk must match (droplet/github-backup.sh:242-255).
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
+          "source droplet/lib/resolve-repo-endpoint.sh; " +
           // One TSV row per source: <name>\t<allow globs>\t<deny globs>. Falls back
           // to the deprecated single-source key only when githubSources is absent.
           "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\t')); }\"); " +
@@ -165,7 +166,7 @@ const SCENARIOS: Scenario[] = [
           // disk count.
           "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
-          "if [ \"$(detect_account_type \"$SLUG\")\" = \"Organization\" ]; then EP=\"/orgs/$SLUG/repos?type=all&per_page=100\"; else EP=\"/users/$SLUG/repos?type=all&per_page=100\"; fi; " +
+          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
           "set +e; " +
           "LIST=$(gh api --paginate \"$EP\" --jq '.[].full_name' 2>/dev/null); rc=$?; " +
           "set -e; " +
@@ -389,7 +390,7 @@ const SCENARIOS: Scenario[] = [
     title: "verify:phase-4 ref-mismatch path",
     mode: "manual",
     manualInstruction:
-      "Operator: inject a ref mismatch with `ssh root@{{droplet.ip}} 'git -C /opt/github-backups/<owner>/<owner>_<repo>.git update-ref refs/heads/__test__ HEAD'` (use the repo from `cfg.restoreTestRepo`). Run `npm run verify:phase-4` and verify exit 1 + `✗ ref mismatch between droplet mirror and restored bare mirror`. Cleanup: `ssh root@{{droplet.ip}} 'git -C /opt/github-backups/<owner>/<owner>_<repo>.git update-ref -d refs/heads/__test__'`. D-02: mutates droplet mirror, runner does NOT automate.",
+      "Operator: run `npm run verify:phase-4 -- --inject-ref-mismatch`. The flag writes `refs/heads/__verify_mismatch__` (suffixed if the repo already carries that branch) into the restored bare mirror at the only moment a divergence can exist — after verify's restore has cloned from the droplet, before it compares — so the real Group 2 detector, diagnostic and exit path are exercised. Hand-injecting around the verifier instead does not work: restore clones FROM the droplet, so a ref added first is copied into both mirrors and the run exits 0 having asserted nothing. Verify: exit 1, `✗ ref mismatch between droplet mirror and restored bare mirror`, `local-only count : 1`, and the injected `__verify_mismatch__` ref named under `first 1 local-only`. Exit 2 means the detector failed to fire; exit 0 is impossible here. Then run plain `npm run verify:phase-4` and verify exit 0 — the injection lives only in verify's own temp mirror, so the droplet needs no cleanup. Per plan 10-01 the D-02 floor pins this scenario to `manual`; the runner does not automate it even though the flag never writes to the droplet. Temp dirs are left on disk for inspection (D-06).",
   },
 
   // ─── Phase 8 deferred live-validation — 3 scenarios ────────────────────
@@ -399,7 +400,7 @@ const SCENARIOS: Scenario[] = [
     title: "Firewall drift-inject test",
     mode: "manual",
     manualInstruction:
-      "Operator: run `doctl compute firewall remove-rules <fw-id> --outbound-rules \"protocol:tcp,ports:all,destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0\"` then `npm run create-droplet`. Verify post-run: `+ [outbound] Adding rule:` for the deleted entry; zero `add-rules` calls on the immediate re-run. D-02: mutates firewall, runner does NOT automate.",
+      "Operator: `create-droplet` stores IPv4 and IPv6 as SEPARATE rules, so drop one of them with the same syntax it writes: `doctl compute firewall remove-rules <fw-id> --outbound-rules \"protocol:tcp,ports:all,address:0.0.0.0/0\"`. The `destinations:addresses:0.0.0.0/0,0:0:0:0:0:0:0:0/0` spelling matches no stored rule, exits 0 and changes nothing — confirm the count really dropped with `doctl compute firewall get <fw-id> --output json | jq '.[0].outbound_rules | length'` (6 → 5) before continuing. Then `npm run create-droplet`. Verify post-run: `+ [outbound] Adding rule: tcp/all to 0.0.0.0/0`; zero `Adding rule` / `Removing rule` lines on the immediate re-run. D-02: mutates firewall, runner does NOT automate.",
   },
   {
     id: "p8d-10",
@@ -407,7 +408,7 @@ const SCENARIOS: Scenario[] = [
     title: "Firewall extras-preservation test",
     mode: "manual",
     manualInstruction:
-      "Operator: run `doctl compute firewall add-rules <fw-id> --outbound-rules \"protocol:tcp,ports:9999,destinations:addresses:0.0.0.0/0\"` then `npm run create-droplet`. Verify post-run: the extras row is still present on the firewall; no `remove-rules` call. D-02: mutates firewall, runner does NOT automate.",
+      "Operator: `doctl compute firewall add-rules <fw-id> --outbound-rules \"protocol:tcp,ports:9999,address:0.0.0.0/0\"` — the `destinations:addresses:…` spelling prints `Error: cannot use null as iterable`, still exits 0, and adds nothing, so confirm the rule exists before continuing. Then `npm run create-droplet`. Verify post-run: no `Removing rule` line, and `doctl compute firewall get <fw-id> --output json | jq '.[0].outbound_rules[] | select(.ports==\"9999\")'` still returns the extras row. Cleanup: the same command with `remove-rules`. D-02: mutates firewall, runner does NOT automate.",
   },
   {
     id: "p8d-11",

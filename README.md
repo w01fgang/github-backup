@@ -253,11 +253,12 @@ ssh -i ~/.ssh/id_rsa root@DROPLET_IP systemctl status cron
 ssh -i ~/.ssh/id_rsa root@DROPLET_IP /opt/github-backups/github-backup.sh
 ```
 
-Or watch it live:
+Both the cron entry and the scripts append to `/var/log/github-backup.log`
+on their own, so a manual run is already logged. To watch it live from a
+second shell:
 
 ```bash
-ssh -i ~/.ssh/id_rsa root@DROPLET_IP \
-  '/opt/github-backups/github-backup.sh 2>&1 | tee -a /var/log/github-backup.log'
+ssh -i ~/.ssh/id_rsa root@DROPLET_IP tail -f /var/log/github-backup.log
 ```
 
 ### Read the backup log
@@ -605,6 +606,18 @@ match the droplet mirror byte-for-byte (sorted `git for-each-ref` diff).
 Use it as a smoke test after any change to the restore path or the
 droplet mirror layout.
 
+To check that the comparison itself still has teeth, run it with the
+negative-test flag:
+
+```bash
+npm run verify:phase-4 -- --inject-ref-mismatch
+```
+
+It writes a throwaway ref into the restored bare mirror after the clone
+and before the comparison, so exit 1 plus `local-only count : 1` is the
+pass. The droplet is never written to; exit 2 means the injected
+divergence went unnoticed.
+
 See also: [Clone a mirrored repo for local development](#clone-a-mirrored-repo-for-local-development)
 for the lighter-weight "I just want offline access, not full recovery"
 case (single direct `git clone`, origin pointed at the droplet).
@@ -664,6 +677,7 @@ this section stale.
 | `droplet/webhook-listener.js` | Webhook trio: Node listener | phase-3 | required |
 | `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection (cached) | phase-7 | required |
 | `droplet/lib/filter-repos.sh` | Lib: per-source allow/deny glob filter | phase-7 | required |
+| `droplet/lib/resolve-repo-endpoint.sh` | Lib: repo-list endpoint (private repos included) | phase-7 | required |
 
 <!-- END: droplet-manifest -->
 

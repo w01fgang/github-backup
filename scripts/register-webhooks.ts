@@ -29,6 +29,7 @@ import { execSync } from "child_process";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { sshFlags, runCapture } from "./lib/ssh";
 import { filterRepos } from "./lib/filter-repos";
+import { resolveRepoEndpoint } from "./lib/repo-endpoint";
 
 function gh(args: string): string {
   return runCapture(`gh api ${args}`);
@@ -113,10 +114,7 @@ async function main(): Promise<void> {
     } catch {
       acctType = "User";
     }
-    const endpoint =
-      acctType === "Organization"
-        ? `/orgs/${owner}/repos?type=all&per_page=100`
-        : `/users/${owner}/repos?type=all&per_page=100`;
+    const endpoint = resolveRepoEndpoint(owner, acctType);
 
     // Per-source listing must not be fatal: one source that 404s / is invisible
     // to the token / is rate-limited would otherwise throw out of this loop and

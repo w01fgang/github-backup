@@ -87,6 +87,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-03` | No self-push assertion: sorted `for-each-ref` equality already proves byte-equivalent refs, so a throwaway-bare push round-trip would add zero signal. | `scripts/verify/phase-4.ts` |
 | `D-04` | `scripts/restore.ts` is a TypeScript helper, not README copy-paste, invoked by both the operator and `verify:phase-4` — one code path for the restore dance. | `scripts/restore.ts` |
 | `D-06` | On failure, `verify:phase-4` leaves the temp restore directory on disk and prints its path for operator inspection. | `scripts/verify/phase-4.ts` |
+| `D-07` | `verify:phase-4 -- --inject-ref-mismatch` is Group 2's negative test: it writes `refs/heads/__verify_mismatch__` (suffixed on collision, anchored to an existing ref rather than `HEAD`) into the restored bare mirror after the clone and before the comparison, so exit 1 proves the detector fires. It never writes to the droplet, and exit 2 means the injected divergence went unnoticed. | `scripts/verify/phase-4.ts`, `scripts/uat-runner.ts` |
 
 ### Phase 05 — Bootstrap idempotency (v1.0, `05-teardown/`)
 
@@ -122,6 +123,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-07` | `verify:phase-7` source-loads `filter-repos.sh` under `set -e` and runs three golden allow/deny cases (owns `SC#3`). | `scripts/verify/phase-7.ts` |
 | `D-08` | `verify:phase-7` runs `github-backup.sh` once against a whitelisted target and asserts the mirror exists, a `RESULT_TAG` line appears, and the new log tail has no `unbound variable`/`command not found` (owns `SC#4`). | `scripts/verify/phase-7.ts` |
 | `D-09` | `verify:phase-7` is standalone — no shared verify-helpers module, reuses only `scripts/lib/ssh.ts` + `scripts/lib/config.ts`. | `scripts/verify/phase-7.ts` |
+| `D-10` | Repo listing goes through `droplet/lib/resolve-repo-endpoint.sh` (TS callers via `scripts/lib/repo-endpoint.ts`): an organisation source uses `/orgs/<org>/repos?type=all`, the token owner's own user source uses `/user/repos?affiliation=owner`, any other user source keeps `/users/<login>/repos?type=all`. `/users/<login>/repos` returns public repositories only — even for the token owner — so the previous unconditional use of it silently excluded every private repo of a user source from the mirror set, the webhook registration, and the `p01-05` disk-count gate. | `droplet/lib/resolve-repo-endpoint.sh`, `droplet/github-backup.sh`, `scripts/register-webhooks.ts`, `scripts/verify/phase-6.ts`, `scripts/verify/phase-7.ts`, `scripts/uat-runner.ts` |
 
 ### Phase 08 — Bootstrap uploader hardening (v1.1)
 

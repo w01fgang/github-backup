@@ -35,6 +35,7 @@ export const required: ManifestEntry[] = [
   { path: "droplet/webhook-listener.js",           purpose: "Webhook trio: Node listener",                 phase: "phase-3", destSubdir: "",     chmodExec: false },
   { path: "droplet/lib/detect-account-type.sh",    purpose: "Lib: User/Organization detection (cached)",   phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
   { path: "droplet/lib/filter-repos.sh",           purpose: "Lib: per-source allow/deny glob filter",      phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
+  { path: "droplet/lib/resolve-repo-endpoint.sh", purpose: "Lib: repo-list endpoint (private repos included)", phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
 ];
 
 export const optional: ManifestEntry[] = [];
