@@ -9,7 +9,7 @@
 #
 # Steps:
 #   1. Source backup.env (sets GITHUB_TOKEN, GITHUB_USER_OR_ORG, etc.)
-#   2. apt update + upgrade
+#   2. Wait for cloud-init, then apt update + upgrade (retrying on apt locks)
 #   3. Install: git, jq, cron, curl, gpg, ca-certificates
 #   4. Install gh CLI from the official GitHub apt repo
 #   5. Authenticate gh CLI with the stored token
@@ -64,15 +64,46 @@ done
 unset _BOOT_SOURCES _s
 
 # ── System package updates ─────────────────────────────────────────────────
+# A freshly created droplet is still running cloud-init, and cloud-init starts
+# unattended-upgrades. Both hold the apt locks for the first minute or two, so
+# the FIRST bootstrap after `npm run create-droplet` used to abort on
+# "E: Could not get lock /var/lib/apt/lists/lock". Wait for cloud-init, then
+# retry each apt invocation while the locks are still busy — cloud-init
+# reporting `done` does not guarantee its child upgrade has exited.
+if command -v cloud-init &>/dev/null; then
+  echo
+  echo "▸ Waiting for cloud-init to finish…"
+  cloud-init status --wait >/dev/null 2>&1 || true
+  echo "  ✓ cloud-init settled ($(cloud-init status 2>/dev/null | head -1))"
+fi
+
+# apt_get <args…> — apt-get with DEBIAN_FRONTEND set and lock-contention retry.
+# Only retries: a genuine apt failure (bad package, no network) still exits
+# non-zero once the retry budget is spent, and `set -e` aborts the bootstrap.
+APT_MAX_TRIES=30
+APT_RETRY_SLEEP=10
+apt_get() {
+  local try=1
+  until DEBIAN_FRONTEND=noninteractive apt-get "$@"; do
+    if (( try >= APT_MAX_TRIES )); then
+      echo "ERROR: apt-get $* still failing after ${try} attempts" >&2
+      return 1
+    fi
+    echo "  apt is busy or failing (attempt ${try}/${APT_MAX_TRIES}) — retrying in ${APT_RETRY_SLEEP}s…"
+    sleep "${APT_RETRY_SLEEP}"
+    try=$(( try + 1 ))
+  done
+}
+
 echo
 echo "▸ Updating package lists…"
-DEBIAN_FRONTEND=noninteractive apt-get update -qq
+apt_get update -qq
 
 echo "▸ Upgrading installed packages…"
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+apt_get upgrade -y -qq
 
 echo "▸ Installing base packages (git, jq, cron, curl, gpg, ca-certificates)…"
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+apt_get install -y -qq \
   git \
   jq \
   cron \
@@ -99,8 +130,8 @@ else
 https://cli.github.com/packages stable main" \
     | tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh
+  apt_get update -qq
+  apt_get install -y -qq gh
 
   echo "  ✓ gh CLI installed: $(gh --version 2>&1 | head -1)"
 fi
@@ -118,8 +149,8 @@ else
   curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
     | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
 
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
+  apt_get update -qq
+  apt_get install -y -qq caddy
 
   echo "  ✓ Caddy installed: $(caddy version 2>&1 | head -1)"
 fi
@@ -130,7 +161,7 @@ if command -v node &>/dev/null; then
   echo "▸ Node.js already installed ($(node --version)), skipping."
 else
   echo "▸ Installing Node.js (Ubuntu default repo — listener uses only built-in modules)…"
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
+  apt_get install -y -qq nodejs
   echo "  ✓ Node.js installed: $(node --version)"
 fi
 
