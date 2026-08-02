@@ -87,7 +87,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-03` | No self-push assertion: sorted `for-each-ref` equality already proves byte-equivalent refs, so a throwaway-bare push round-trip would add zero signal. | `scripts/verify/phase-4.ts` |
 | `D-04` | `scripts/restore.ts` is a TypeScript helper, not README copy-paste, invoked by both the operator and `verify:phase-4` — one code path for the restore dance. | `scripts/restore.ts` |
 | `D-06` | On failure, `verify:phase-4` leaves the temp restore directory on disk and prints its path for operator inspection. | `scripts/verify/phase-4.ts` |
-| `D-07` | `verify:phase-4 -- --inject-ref-mismatch` is Group 2's negative test: it writes `refs/heads/__verify_mismatch__` into the restored bare mirror after the clone and before the comparison, so exit 1 proves the detector fires. It never writes to the droplet, and exit 2 means the injected divergence went unnoticed. | `scripts/verify/phase-4.ts`, `scripts/uat-runner.ts` |
+| `D-07` | `verify:phase-4 -- --inject-ref-mismatch` is Group 2's negative test: it writes `refs/heads/__verify_mismatch__` (suffixed on collision, anchored to an existing ref rather than `HEAD`) into the restored bare mirror after the clone and before the comparison, so exit 1 proves the detector fires. It never writes to the droplet, and exit 2 means the injected divergence went unnoticed. | `scripts/verify/phase-4.ts`, `scripts/uat-runner.ts` |
 
 ### Phase 05 — Bootstrap idempotency (v1.0, `05-teardown/`)
 
