@@ -44,6 +44,7 @@ const REMOTE_LOG = "/var/log/github-backup.log";
 const REMOTE_SYNC_ONE_REPO = `${REMOTE_DIR}/sync-one-repo.sh`;
 const REMOTE_DETECT_LIB = `${REMOTE_DIR}/lib/detect-account-type.sh`;
 const REMOTE_FILTER_LIB = `${REMOTE_DIR}/lib/filter-repos.sh`;
+const REMOTE_ENDPOINT_LIB = `${REMOTE_DIR}/lib/resolve-repo-endpoint.sh`;
 const REMOTE_BACKUP_SH = `${REMOTE_DIR}/github-backup.sh`;
 const RESULT_TAG = "BACKUP_REPO_RESULT";
 
@@ -431,13 +432,10 @@ function chooseTarget(
       `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
       `source ${REMOTE_DETECT_LIB}; detect_account_type ${src.name}`;
     const t = sshCapture(ip, user, key, accountTypeCmd).trim();
-    const ep =
-      t === "Organization"
-        ? `/orgs/${src.name}/repos?type=all&per_page=100`
-        : `/users/${src.name}/repos?type=all&per_page=100`;
     const listCmd =
       `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
-      `gh api "${ep}" --jq ".[].full_name"`;
+      `source ${REMOTE_ENDPOINT_LIB}; ` +
+      `gh api "$(resolve_repo_endpoint ${src.name} ${t})" --jq ".[].full_name"`;
     const repos = sshCapture(ip, user, key, listCmd)
       .split("\n")
       .filter((l) => l.length > 0);

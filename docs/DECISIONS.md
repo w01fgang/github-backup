@@ -122,6 +122,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-07` | `verify:phase-7` source-loads `filter-repos.sh` under `set -e` and runs three golden allow/deny cases (owns `SC#3`). | `scripts/verify/phase-7.ts` |
 | `D-08` | `verify:phase-7` runs `github-backup.sh` once against a whitelisted target and asserts the mirror exists, a `RESULT_TAG` line appears, and the new log tail has no `unbound variable`/`command not found` (owns `SC#4`). | `scripts/verify/phase-7.ts` |
 | `D-09` | `verify:phase-7` is standalone — no shared verify-helpers module, reuses only `scripts/lib/ssh.ts` + `scripts/lib/config.ts`. | `scripts/verify/phase-7.ts` |
+| `D-10` | Repo listing goes through `droplet/lib/resolve-repo-endpoint.sh` (TS callers via `scripts/lib/repo-endpoint.ts`): an organisation source uses `/orgs/<org>/repos?type=all`, the token owner's own user source uses `/user/repos?affiliation=owner`, any other user source keeps `/users/<login>/repos?type=all`. `/users/<login>/repos` returns public repositories only — even for the token owner — so the previous unconditional use of it silently excluded every private repo of a user source from the mirror set, the webhook registration, and the `p01-05` disk-count gate. | `droplet/lib/resolve-repo-endpoint.sh`, `droplet/github-backup.sh`, `scripts/register-webhooks.ts`, `scripts/verify/phase-6.ts`, `scripts/verify/phase-7.ts`, `scripts/uat-runner.ts` |
 
 ### Phase 08 — Bootstrap uploader hardening (v1.1)
 

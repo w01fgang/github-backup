@@ -664,6 +664,7 @@ this section stale.
 | `droplet/webhook-listener.js` | Webhook trio: Node listener | phase-3 | required |
 | `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection (cached) | phase-7 | required |
 | `droplet/lib/filter-repos.sh` | Lib: per-source allow/deny glob filter | phase-7 | required |
+| `droplet/lib/resolve-repo-endpoint.sh` | Lib: repo-list endpoint (private repos included) | phase-7 | required |
 
 <!-- END: droplet-manifest -->
 

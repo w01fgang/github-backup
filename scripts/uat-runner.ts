@@ -155,6 +155,7 @@ const SCENARIOS: Scenario[] = [
           // number disk must match (droplet/github-backup.sh:242-255).
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
+          "source droplet/lib/resolve-repo-endpoint.sh; " +
           // One TSV row per source: <name>\t<allow globs>\t<deny globs>. Falls back
           // to the deprecated single-source key only when githubSources is absent.
           "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\t')); }\"); " +
@@ -165,7 +166,7 @@ const SCENARIOS: Scenario[] = [
           // disk count.
           "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
-          "if [ \"$(detect_account_type \"$SLUG\")\" = \"Organization\" ]; then EP=\"/orgs/$SLUG/repos?type=all&per_page=100\"; else EP=\"/users/$SLUG/repos?type=all&per_page=100\"; fi; " +
+          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
           "set +e; " +
           "LIST=$(gh api --paginate \"$EP\" --jq '.[].full_name' 2>/dev/null); rc=$?; " +
           "set -e; " +

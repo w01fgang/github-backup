@@ -355,10 +355,9 @@ function group4DenyEnforcement(cfg: Config, dropInfo: DropletInfo): void {
     `set -a; source ${REMOTE_DIR}/backup.env; set +a; ` +
     `source ${REMOTE_DIR}/lib/detect-account-type.sh; ` +
     `source ${REMOTE_DIR}/lib/filter-repos.sh; ` +
+    `source ${REMOTE_DIR}/lib/resolve-repo-endpoint.sh; ` +
     `T=$(detect_account_type "${denySource.name}"); ` +
-    `if [ "\$T" = "Organization" ]; then ` +
-    `EP="/orgs/${denySource.name}/repos?type=all&per_page=100"; ` +
-    `else EP="/users/${denySource.name}/repos?type=all&per_page=100"; fi; ` +
+    `EP="$(resolve_repo_endpoint "${denySource.name}" "\$T")"; ` +
     `gh api --paginate "\$EP" --jq ".[].full_name"`;
   const upstream = sshCapture(ip, user, key, setupCmd)
     .split("\n")
