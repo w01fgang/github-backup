@@ -118,3 +118,26 @@ test("a missing backup dir yields no match instead of failing the caller", () =>
   );
   assert.equal(out.trim(), "");
 });
+
+test("a backupDir that is a symlink to the real volume still resolves", () => {
+  // README documents backupDir as "any absolute path", and an operator who
+  // moved the mirrors onto an attached volume points it at a symlink. `find`
+  // defaults to -P, which visits the symlink and nothing beneath it; the shell
+  // glob this replaced expanded through it, so -P would be a silent regression
+  // reporting every existing mirror absent.
+  const link = fs.mkdtempSync(path.join(os.tmpdir(), "mirror-path-link-")) + "/volume";
+  fs.symlinkSync(backupDir, link, "dir");
+  try {
+    const out = execFileSync(
+      "bash",
+      ["-c", mirrorFindCommand(link, "toprent-app", "locale-editor")],
+      { encoding: "utf8" }
+    );
+    assert.deepEqual(
+      out.split("\n").map((l) => l.trim()).filter(Boolean),
+      [path.join(link, "toprent-app/Toprent-app_locale-editor.git")]
+    );
+  } finally {
+    fs.rmSync(path.dirname(link), { recursive: true, force: true });
+  }
+});

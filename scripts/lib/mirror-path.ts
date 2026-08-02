@@ -34,6 +34,12 @@ import { runCapture, sshFlags } from "./ssh";
  * Exported so tests can run it against a scratch tree instead of asserting on
  * a reimplementation of `-iname` in TypeScript.
  *
+ * `-H` dereferences the starting path, so a `backupDir` that is a symlink to
+ * the real backup volume still resolves. README documents the field as "any
+ * absolute path"; `find` defaults to `-P`, under which a symlinked root is
+ * itself the only thing visited and nothing below it matches. `-H` stops
+ * there — symlinks *inside* the tree stay unfollowed.
+ *
  * `-mindepth 2 -maxdepth 2` pins the D-07 layout (<backupDir>/<source>/x.git)
  * and keeps `find` out of the mirrors themselves. `|| true` swallows a missing
  * backup dir so an unprovisioned droplet reaches the caller's "no mirror"
@@ -47,7 +53,7 @@ export function mirrorFindCommand(
   repo: string
 ): string {
   return (
-    `find ${backupDir} -mindepth 2 -maxdepth 2 -type d ` +
+    `find -H ${backupDir} -mindepth 2 -maxdepth 2 -type d ` +
     `-iname '${owner}_${repo}.git' 2>/dev/null || true`
   );
 }
