@@ -37,6 +37,7 @@ import {
   type NormalizedSource,
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import { filterRepos } from "../lib/filter-repos";
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -117,31 +118,13 @@ function parseRepoSlug(slug: string): { owner: string; repo: string } | null {
   return m ? { owner: m[1], repo: m[2] } : null;
 }
 
-/** Tiny bash-style glob — * and ? only (sufficient for v1.1 patterns). */
-function globMatch(pat: string, s: string): boolean {
-  const rx =
-    "^" +
-    pat
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".") +
-    "$";
-  return new RegExp(rx).test(s);
-}
-
-/** Mirror filter_repos.sh semantics in TS for local pre-selection. Deny wins. */
-function passesFilter(
+/** True iff `owner/repo` survives the source's allow/deny globs (deny wins). */
+function passesRepoFilter(
   s: NormalizedSource,
   owner: string,
   repo: string
 ): boolean {
-  const full = `${owner}/${repo}`;
-  const name = repo;
-  const matchAny = (pats: string[]): boolean =>
-    pats.some((p) => (p.includes("/") ? globMatch(p, full) : globMatch(p, name)));
-  if (s.deny.length > 0 && matchAny(s.deny)) return false;
-  if (s.allow.length === 0) return true;
-  return matchAny(s.allow);
+  return filterRepos(s.name, [`${owner}/${repo}`], s.allow, s.deny).length > 0;
 }
 
 // ─── Group 1 ─────────────────────────────────────────────────────────────
@@ -319,7 +302,19 @@ function group4EndToEnd(
   const key = cfg.sshKeyPath;
   const { source, owner, repo } = target;
 
-  // 4a. snapshot log size so we only inspect lines this run produced
+  // 4a. compute the target mirror path and snapshot its freshness (mtime of
+  // FETCH_HEAD, or the mirror dir itself when FETCH_HEAD is absent) before
+  // the run, plus log size so we only inspect lines this run produced. The
+  // freshness snapshot proves the upcoming cron run — not Group 1's earlier
+  // sync-one-repo.sh call — is what advances the target mirror.
+  const mirrorPath = `${REMOTE_DIR}/${source}/${owner}_${repo}.git`;
+  const freshnessCmd =
+    `stat -c %Y ${mirrorPath}/FETCH_HEAD 2>/dev/null || ` +
+    `stat -c %Y ${mirrorPath} 2>/dev/null || echo 0`;
+  const freshnessBefore =
+    parseInt(sshCapture(ip, user, key, freshnessCmd).trim(), 10) || 0;
+  info(`target mirror freshness before: ${freshnessBefore}`);
+
   const sizeBefore =
     parseInt(
       sshCapture(
@@ -332,13 +327,16 @@ function group4EndToEnd(
     ) || 0;
   info(`log size before: ${sizeBefore} bytes`);
 
-  // 4b. run cron path — github-backup.sh is the orchestrator.
+  // 4b. run cron path — github-backup.sh is the orchestrator. `date +%s`
+  // runs first in the same ssh round-trip so the run-start epoch is measured
+  // on the droplet's clock, matching the freshness timestamps below.
   // Accept exit 0 (all repos OK) or 1 (≥1 repo failed). Both mean "ran
-  // end-to-end"; D-08's contract is the mirror-dir + RESULT_TAG + clean-log
-  // checks below, NOT all-repos-clean (which is out of v1.1 scope —
+  // end-to-end"; D-08's contract is the mirror-dir + freshness + RESULT_TAG +
+  // clean-log checks below, NOT all-repos-clean (which is out of v1.1 scope —
   // operator's source list may have unrelated breakage).
-  const runCmd = `${REMOTE_BACKUP_SH} >/dev/null 2>&1; echo exit=$?`;
+  const runCmd = `date +%s; ${REMOTE_BACKUP_SH} >/dev/null 2>&1; echo exit=$?`;
   const runOut = sshCapture(ip, user, key, runCmd);
+  const runStartEpoch = parseInt(runOut.split(/\r?\n/)[0], 10) || 0;
   const exitMatch = runOut.match(/exit=(\d+)/);
   const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : -1;
   assert(
@@ -346,18 +344,35 @@ function group4EndToEnd(
     `${REMOTE_BACKUP_SH} ran end-to-end (exit 0 or 1; got ${exitCode})`
   );
 
-  // 4c. namespaced mirror dir exists for target
-  const mirrorPath = `${REMOTE_DIR}/${source}/${owner}_${repo}.git`;
+  // 4c. namespaced mirror dir exists for target (SC#4a)
   assert(
     sshExitsZero(ip, user, key, `test -d ${mirrorPath}`),
     `(SC#4a) namespaced mirror dir ${mirrorPath} exists after cron run`
   );
 
-  // 4d. >= 1 BACKUP_REPO_RESULT action=clone|update line in the new tail.
-  // D-08 says "at least one" — does NOT require it be the target slug.
-  // github-backup.sh under `set -e` may abort after the first per-repo failure
-  // (Phase 1 behavior, out of v1.1 scope); requiring the target specifically
-  // would conflate "cron path works" with "target was first in iteration".
+  // 4d. target mirror freshness advanced during THIS run (SC#4b). Group 1
+  // already created/refreshed the same mirror before Group 4 starts, so 4c
+  // alone is trivially true; comparing against the droplet-side run-start
+  // epoch proves the cron run itself — not Group 1 — touched the target.
+  // github-backup.sh runs under `set -e` and may abort before reaching the
+  // target (Phase 1 behavior, out of v1.1 scope); when that happens this
+  // assertion fails loud rather than passing on Group 1's leftover mirror.
+  const freshnessAfter =
+    parseInt(sshCapture(ip, user, key, freshnessCmd).trim(), 10) || 0;
+  assert(
+    freshnessAfter >= runStartEpoch,
+    `(SC#4b) target mirror ${source}/${owner}/${repo} freshness did not advance ` +
+      `during this cron run (mirror mtime=${freshnessAfter}, run-start=${runStartEpoch}, ` +
+      `before-run mirror mtime=${freshnessBefore}) — github-backup.sh likely aborted ` +
+      `before reaching the target; re-run`
+  );
+
+  // 4e. >= 1 BACKUP_REPO_RESULT action=clone|update line in the new tail
+  // (SC#4c). D-08 says "at least one" — does NOT require it be the target
+  // slug. github-backup.sh under `set -e` may abort after the first per-repo
+  // failure (Phase 1 behavior, out of v1.1 scope); requiring the target
+  // specifically would conflate "cron path works" with "target was first in
+  // iteration" — 4d above already proves the target itself was reached.
   const tailCmd = `tail -c +$((${sizeBefore} + 1)) ${REMOTE_LOG}`;
   const newTail = sshCapture(ip, user, key, tailCmd);
   const resultLines = newTail
@@ -367,16 +382,16 @@ function group4EndToEnd(
     );
   assert(
     resultLines.length >= 1,
-    `(SC#4b) ≥1 ${RESULT_TAG} action=clone|update line in this run (got ${resultLines.length})`
+    `(SC#4c) ≥1 ${RESULT_TAG} action=clone|update line in this run (got ${resultLines.length})`
   );
 
-  // 4e. zero "unbound variable" / "command not found" in the new tail
+  // 4f. zero "unbound variable" / "command not found" in the new tail (SC#4d)
   const badLines = newTail.split("\n").filter(
     (l) => /unbound variable/.test(l) || /command not found/.test(l)
   );
   assert(
     badLines.length === 0,
-    `(SC#4c) zero "unbound variable"/"command not found" in new log tail (got ${badLines.length}${
+    `(SC#4d) zero "unbound variable"/"command not found" in new log tail (got ${badLines.length}${
       badLines.length > 0 ? ": " + JSON.stringify(badLines.slice(0, 3)) : ""
     })`
   );
@@ -399,7 +414,7 @@ function chooseTarget(
     if (!SLUG_RE.test(parsed.owner) || !SLUG_RE.test(parsed.repo)) continue;
     const src = cfg.sources.find((s) => s.name === parsed.owner);
     if (!src) continue;
-    if (passesFilter(src, parsed.owner, parsed.repo)) {
+    if (passesRepoFilter(src, parsed.owner, parsed.repo)) {
       info(
         `SC#4 target = ${cand} (from config.${
           cfg.webhookTestRepo === cand ? "webhookTestRepo" : "restoreTestRepo"
@@ -430,7 +445,7 @@ function chooseTarget(
       const parsed = parseRepoSlug(r);
       if (!parsed) continue;
       if (!SLUG_RE.test(parsed.owner) || !SLUG_RE.test(parsed.repo)) continue;
-      if (passesFilter(src, parsed.owner, parsed.repo)) {
+      if (passesRepoFilter(src, parsed.owner, parsed.repo)) {
         info(`SC#4 target = ${r} (auto-discovered from source "${src.name}")`);
         return { source: src.name, owner: parsed.owner, repo: parsed.repo };
       }

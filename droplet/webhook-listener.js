@@ -3,10 +3,9 @@
 //
 // Tiny HTTPS-handler (behind Caddy) for GitHub push webhooks.
 // Multi-source (Phase 9): owner must be in GITHUB_SOURCES from
-// /opt/github-backups/backup.env (re-read per request). See
-// .planning/phases/03-webhook/03-CONTEXT.md for the v1 design (D-01 ─ D-13, D-17)
-// and .planning/phases/09-webhook-multi-source-filter-parity/09-CONTEXT.md for the
-// multi-source rescope (D-01 ─ D-05).
+// /opt/github-backups/backup.env (re-read per request). See docs/DECISIONS.md
+// for the v1 design (phase 03 — webhook, D-01 ─ D-13, D-17) and the multi-source
+// rescope (phase 09 — webhook multi-source + filter parity, D-01 ─ D-05).
 //
 // REPOS-01 parity (WEBHOOK-04): a push is dispatched only when the repo also
 // survives that source's allow/deny globs. The globs are applied by the same
@@ -117,12 +116,20 @@ const MAX_BODY_BYTES = (() => {
   return n;
 })();
 
-if (!SECRET) bail("WEBHOOK_SECRET not set (load /opt/github-backups/backup.env)");
-if (!Number.isFinite(PORT)) {
-  bail(`WEBHOOK_LISTEN_PORT not a number: ${process.env.WEBHOOK_LISTEN_PORT}`);
-}
+// Boot-time validation, state-dir creation, crash handlers, and listening are
+// entrypoint-only side effects. `require`ing this file (unit tests) exposes the
+// pure helpers via module.exports without starting a server.
+const IS_ENTRYPOINT = require.main === module;
 
-fs.mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+if (IS_ENTRYPOINT) {
+  if (!SECRET) {
+    bail("WEBHOOK_SECRET not set (load /opt/github-backups/backup.env)");
+  }
+  if (!Number.isFinite(PORT)) {
+    bail(`WEBHOOK_LISTEN_PORT not a number: ${process.env.WEBHOOK_LISTEN_PORT}`);
+  }
+  fs.mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+}
 
 const LAST_EVENT_PATH = path.join(STATE_DIR, "last-webhook-event.json");
 const SYNC_SCRIPT = path.join(BACKUP_DIR, "sync-one-repo.sh");
@@ -394,17 +401,21 @@ const server = http.createServer((req, res) => {
   });
 });
 
-process.on("uncaughtException", (e) => {
-  process.stderr.write(`uncaught: ${e && e.stack ? e.stack : e}\n`);
-  process.exit(1);
-});
-process.on("unhandledRejection", (e) => {
-  process.stderr.write(`unhandled: ${e}\n`);
-  process.exit(1);
-});
+module.exports = { parseEnvFile, envSlot };
 
-server.listen(PORT, "127.0.0.1", () => {
-  process.stdout.write(
-    `[${new Date().toISOString()}] webhook-listener up on 127.0.0.1:${PORT} (env=${BACKUP_ENV_PATH})\n`
-  );
-});
+if (IS_ENTRYPOINT) {
+  process.on("uncaughtException", (e) => {
+    process.stderr.write(`uncaught: ${e && e.stack ? e.stack : e}\n`);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (e) => {
+    process.stderr.write(`unhandled: ${e}\n`);
+    process.exit(1);
+  });
+
+  server.listen(PORT, "127.0.0.1", () => {
+    process.stdout.write(
+      `[${new Date().toISOString()}] webhook-listener up on 127.0.0.1:${PORT} (env=${BACKUP_ENV_PATH})\n`
+    );
+  });
+}

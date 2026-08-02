@@ -49,12 +49,12 @@ interface FirewallRecord {
 interface RuleEndpoint {
   addresses?: string[];
 }
-interface InboundRule {
+export interface InboundRule {
   protocol: string;
   ports: string;
   sources?: RuleEndpoint;
 }
-interface OutboundRule {
+export interface OutboundRule {
   protocol: string;
   ports: string;
   destinations?: RuleEndpoint;
@@ -64,9 +64,9 @@ interface FirewallDetail extends FirewallRecord {
   outbound_rules?: OutboundRule[];
 }
 
-type Direction = "inbound" | "outbound";
+export type Direction = "inbound" | "outbound";
 
-interface ExpectedRule {
+export interface ExpectedRule {
   protocol: string; // "tcp" | "udp" | "icmp"
   ports: string; // "22" | "all" | "" (icmp has no ports — pass "" and skip ports compare)
   /** Comma-separated CIDR list, e.g. "0.0.0.0/0,::/0". Order-insensitive. */
@@ -77,7 +77,7 @@ interface ExpectedRule {
  * Treat `::/0` and `0:0:0:0:0:0:0:0/0` as equivalent — doctl emits the long
  * form for outbound destinations but the short form for inbound sources.
  */
-function normalizeCidr(addr: string): string {
+export function normalizeCidr(addr: string): string {
   return addr === "0:0:0:0:0:0:0:0/0" ? "::/0" : addr;
 }
 
@@ -88,7 +88,7 @@ function normalizeCidr(addr: string): string {
  * apply). Without this, `ports:all` expected rules never match present
  * `ports:"0"` rules → reconcile re-adds them on every run → duplicates.
  */
-function normalizePorts(ports: string): string {
+export function normalizePorts(ports: string): string {
   return ports === "all" || ports === "" ? "0" : ports;
 }
 
@@ -102,12 +102,16 @@ function normalizePorts(ports: string): string {
  * Log lines carry a `[inbound]` or `[outbound]` prefix (D-12), e.g.:
  *     `   ✓ [inbound] Rule already present: tcp/22 from <cidr>`
  *     `   + [inbound] Adding rule: tcp/80 from 0.0.0.0/0,::/0`
+ *
+ * `run` is the shell escape hatch; it defaults to `runCapture` and exists so
+ * tests can observe the emitted doctl commands without touching the network.
  */
-function reconcileRules(
+export function reconcileRules(
   direction: Direction,
   firewallId: string,
   expected: ExpectedRule[],
-  present: (InboundRule | OutboundRule)[]
+  present: (InboundRule | OutboundRule)[],
+  run: (cmd: string) => string = runCapture
 ): void {
   const flag = direction === "inbound" ? "--inbound-rules" : "--outbound-rules";
   const fromOrTo = direction === "inbound" ? "from" : "to";
@@ -152,7 +156,7 @@ function reconcileRules(
       const subRules = missing
         .map((cidr) => `protocol:${r.protocol}${portsPart},address:${cidr}`)
         .join(" ");
-      runCapture(
+      run(
         `doctl compute firewall add-rules ${firewallId} ` +
           `${flag} "${subRules}"`
       );
@@ -382,7 +386,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((err) => {
-  console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
+    process.exit(1);
+  });
+}

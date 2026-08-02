@@ -2,7 +2,7 @@
 /**
  * scripts/uat-runner.ts
  *
- * Phase 10 (VALID-01/02/03) — runner for the 21 outstanding human UAT
+ * Phase 10 (VALID-01/02/03) — runner for the 22 outstanding human UAT
  * scenarios across Phases 01, 03, 04 + 3 Phase 8 deferred live-validation
  * items. Conservative automation (D-02): pure-script checks and read-only
  * assertions only; anything that mutates infrastructure stays in the
@@ -13,7 +13,7 @@
  * scripted failed, 2 = runner crashed).
  *
  * Usage:
- *   npm run uat                                   # all 21
+ *   npm run uat                                   # all 22
  *   tsx scripts/uat-runner.ts --phase 01
  *   tsx scripts/uat-runner.ts --phase 03
  *   tsx scripts/uat-runner.ts --phase 04
@@ -81,14 +81,14 @@ interface ParsedFlags {
   help: boolean;
 }
 
-// ─── Scenario manifest (21 entries, strict-floor manual ≥ 7) ──────────────
+// ─── Scenario manifest (22 entries, strict-floor manual ≥ 8) ──────────────
 
 const SCENARIOS: Scenario[] = [
-  // ─── Phase 01 — 8 scenarios ────────────────────────────────────────────
+  // ─── Phase 01 — 9 scenarios ────────────────────────────────────────────
   {
     id: "p01-01",
     phase: "01",
-    title: "Cold Start Smoke Test",
+    title: "Idempotent Smoke Test Against Existing Droplet",
     mode: "scripted",
     steps: [
       {
@@ -224,10 +224,18 @@ const SCENARIOS: Scenario[] = [
   {
     id: "p01-08",
     phase: "01",
-    title: "Destroy Droplet Safety Gates",
+    title: "Teardown Leaves No Orphaned State",
     mode: "manual",
     manualInstruction:
-      "Operator: on a sacrificial droplet, verify `npx tsx scripts/destroy-droplet.ts` with no `.droplet.json` exits 1 with 'Refusing to destroy: .droplet.json not found.'; with `.droplet.json` and no `--yes` prompts y/N and refuses on empty/N; with `--yes` destroys by id only. D-02: destructive — runner does NOT automate.",
+      "Operator: on a sacrificial droplet, follow the documented teardown (README §Teardown): delete the droplet from the DigitalOcean control panel, then remove the local `.droplet.json`. Verify `npm run status` reports no droplet rather than crashing, and that a subsequent `npm run create-droplet` provisions cleanly instead of adopting stale state. There is no destroy-droplet script by design — teardown is one command at the DO dashboard. D-02: destructive — runner does NOT automate.",
+  },
+  {
+    id: "p01-09",
+    phase: "01",
+    title: "Genuine Cold-Start Provisioning (sacrificial droplet)",
+    mode: "manual",
+    manualInstruction:
+      "Operator: on a SACRIFICIAL droplet (not the one other scenarios depend on), remove `.droplet.json` then run the full provisioning chain from a true cold start: `npm run create-droplet` → `npm run bootstrap-droplet` → `npm run smoke-test`. Verify each step succeeds against the freshly created droplet. Tear the sacrificial droplet down afterward per README §Teardown (delete it in the DigitalOcean control panel, then remove `.droplet.json`). D-02: mutates infrastructure end-to-end, runner does NOT automate.",
   },
 
   // ─── Phase 03 — 6 scenarios ────────────────────────────────────────────
@@ -324,16 +332,15 @@ const SCENARIOS: Scenario[] = [
           "OWNER=${BASE%%_*}; " +
           "REPO=${BASE#*_}; " +
           "DEST=$(mktemp -d)/restore-smoke; " +
-          "OUT=$(npm run --silent restore -- \"$OWNER/$REPO\" \"$DEST\" 2>&1); " +
-          "echo \"$OUT\" > /tmp/uat-p04-01.log; " +
-          "FIRSTLINE=$(echo \"$OUT\" | grep -m1 -E '^RESTORE_LOCAL_MIRROR=' || true); " +
-          "if [ -z \"$FIRSTLINE\" ]; then echo \"missing RESTORE_LOCAL_MIRROR= line\" >&2; exit 1; fi; " +
+          "npm run --silent restore -- \"$OWNER/$REPO\" \"$DEST\" | tee /tmp/uat-p04-01.log; " +
+          // restore.ts prints RESTORE_LOCAL_MIRROR=<path> as the literal first
+          // stdout line on success; expectStdout below anchors on the start of
+          // the captured stream, so a handshake buried on a later line fails.
           "test -d \"$DEST/.git\"; " +
           // Persist the working-clone dir into the log so p04-02 (separate
           // process) can pick it up; the bare RESTORE_LOCAL_MIRROR has no .git.
-          "echo \"P04_01_DEST=$DEST\" >> /tmp/uat-p04-01.log; " +
-          "echo P04_01_DEST=$DEST",
-        expectStdout: /^P04_01_DEST=/m,
+          "echo \"P04_01_DEST=$DEST\" >> /tmp/uat-p04-01.log",
+        expectStdout: /^RESTORE_LOCAL_MIRROR=\/.+/,
         timeoutSec: 300,
       },
     ],
@@ -535,10 +542,10 @@ function parseFlags(args: string[]): ParsedFlags {
 }
 
 function printHelp(): void {
-  console.log("uat-runner — Phase 10 UAT scenarios (21 total)");
+  console.log("uat-runner — Phase 10 UAT scenarios (22 total)");
   console.log("");
   console.log("Usage:");
-  console.log("  npm run uat                            # all 21");
+  console.log("  npm run uat                            # all 22");
   console.log("  tsx scripts/uat-runner.ts --phase 01");
   console.log("  tsx scripts/uat-runner.ts --phase 03");
   console.log("  tsx scripts/uat-runner.ts --phase 04");
