@@ -27,8 +27,16 @@
  *  - D-04: invokes `npm run restore` via child_process — exercises the
  *    same code path the operator uses. Does NOT import the helper's
  *    module-level code (would bypass argv parsing + npm-script env).
- *  - D-06: on failure, leaves the temp restore directory on disk and
- *    prints its absolute path so the operator can inspect.
+ *  - D-06: on failure, `verify:phase-4` leaves the temp restore directory on
+ *    disk and prints its absolute path so the operator can inspect.
+ *  - D-07: `--inject-ref-mismatch` is the negative test for Group 2. The
+ *    restore above clones FROM the droplet, so a divergence cannot be staged
+ *    from outside this script — inject before it runs and the ref is copied
+ *    into both mirrors, inject after it finishes and the comparison is over.
+ *    The flag opens that window at the only point it exists, and writes to
+ *    verify's own throwaway mirror under the OS temp dir: the droplet is
+ *    never written to, so a killed run cannot leave a mirror carrying a
+ *    stray ref that later poisons a real verification.
  *
  * No droplet lock acquired: restore is read-only; git pack-objects is
  * read-safe vs `remote update --prune` (CONTEXT.md "Established
@@ -42,6 +50,7 @@
  *
  * Usage:
  *   npm run verify:phase-4
+ *   npm run verify:phase-4 -- --inject-ref-mismatch   # negative test; exit 1 is the pass
  */
 
 import * as fs from "fs";
@@ -53,6 +62,8 @@ import { sshFlags, runCapture } from "../lib/ssh";
 
 const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const RESTORE_HANDSHAKE_RE = /^RESTORE_LOCAL_MIRROR=(.+)$/;
+const INJECTED_REF = "refs/heads/__verify_mismatch__";
+const injectRefMismatch = process.argv.slice(2).includes("--inject-ref-mismatch");
 
 /** Local assert — fail-fast. Prints ✓ on pass, ✗ + exit 1 on fail. */
 function assert(cond: boolean, msg: string): void {
@@ -145,6 +156,26 @@ assert(
   `restored working clone exists at ${target}`
 );
 
+// --- Negative-test injection (D-07) ---------------------------------------
+if (injectRefMismatch) {
+  const inj = spawnSync(
+    "git",
+    ["-C", localBareMirrorPath, "update-ref", INJECTED_REF, "HEAD"],
+    { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }
+  );
+  if (inj.status !== 0) {
+    bail(
+      `--inject-ref-mismatch: could not write ${INJECTED_REF} into ` +
+        `${localBareMirrorPath}\n    ${(inj.stderr ?? "").trim()}`
+    );
+  }
+  console.log(
+    `\n⚑ --inject-ref-mismatch: wrote ${INJECTED_REF} into the restored bare ` +
+      `mirror only.\n   Group 2 must now report local-only count 1 and exit 1 — ` +
+      `that is the PASS condition for this run.`
+  );
+}
+
 // --- Group 2: refs match (RESTORE-02 via D-02) ----------------------------
 console.log("\n— Group 2: Ref equivalence (RESTORE-02 / D-02) —");
 
@@ -226,6 +257,14 @@ if (remoteOnly.length > 0 || localOnly.length > 0) {
   console.error(`    Temp directory left on disk: ${restoreRoot}`);
   console.error(`    Intermediate bare mirror   : ${localBareMirrorPath}`);
   process.exit(1);
+}
+if (injectRefMismatch) {
+  console.error(
+    `\n✗ --inject-ref-mismatch: Group 2 compared clean despite ${INJECTED_REF} ` +
+      `being present in ${localBareMirrorPath}.\n` +
+      `    The ref-mismatch detector is not detecting. Exit 2 (negative test failed).`
+  );
+  process.exit(2);
 }
 assert(
   true,

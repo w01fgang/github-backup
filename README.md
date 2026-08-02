@@ -606,6 +606,18 @@ match the droplet mirror byte-for-byte (sorted `git for-each-ref` diff).
 Use it as a smoke test after any change to the restore path or the
 droplet mirror layout.
 
+To check that the comparison itself still has teeth, run it with the
+negative-test flag:
+
+```bash
+npm run verify:phase-4 -- --inject-ref-mismatch
+```
+
+It writes a throwaway ref into the restored bare mirror after the clone
+and before the comparison, so exit 1 plus `local-only count : 1` is the
+pass. The droplet is never written to; exit 2 means the injected
+divergence went unnoticed.
+
 See also: [Clone a mirrored repo for local development](#clone-a-mirrored-repo-for-local-development)
 for the lighter-weight "I just want offline access, not full recovery"
 case (single direct `git clone`, origin pointed at the droplet).
