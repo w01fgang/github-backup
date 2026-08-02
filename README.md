@@ -253,11 +253,12 @@ ssh -i ~/.ssh/id_rsa root@DROPLET_IP systemctl status cron
 ssh -i ~/.ssh/id_rsa root@DROPLET_IP /opt/github-backups/github-backup.sh
 ```
 
-Or watch it live:
+Both the cron entry and the scripts append to `/var/log/github-backup.log`
+on their own, so a manual run is already logged. To watch it live from a
+second shell:
 
 ```bash
-ssh -i ~/.ssh/id_rsa root@DROPLET_IP \
-  '/opt/github-backups/github-backup.sh 2>&1 | tee -a /var/log/github-backup.log'
+ssh -i ~/.ssh/id_rsa root@DROPLET_IP tail -f /var/log/github-backup.log
 ```
 
 ### Read the backup log
