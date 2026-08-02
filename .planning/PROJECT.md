@@ -65,7 +65,7 @@ Shipped v1.0 (2026-05-16). 6 phases, 19 plans across pipeline verification, moni
 - [ ] Fix 3 runtime-critical deferred items (missing droplet scripts)
 - [ ] Complete live-droplet human UAT for Phases 01, 03, 04
 - [ ] Multi-source webhook routing (events for source #2 currently 404)
-- [ ] Webhook path REPOS-01 filtering (`filter-repos.sh` not sourced in webhook handler)
+- [x] Webhook path REPOS-01 filtering (`webhook-listener.js` + `register-webhooks.ts` both source `filter-repos.sh`)
 
 ### Out of Scope
 

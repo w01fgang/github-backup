@@ -21,20 +21,29 @@ _matches_any() {
   local pats="$1"
   local full="$2"
   local name="${full##*/}"
-  local p
+  local p rc=1
+  # `for p in ${pats}` needs word-splitting but MUST NOT pathname-expand: an
+  # unguarded `*` or `al*` is replaced by matching filenames in the CALLER's
+  # cwd, so the same deny list silently filters differently depending on where
+  # the caller ran (`deny="*"` from a non-empty cwd denies nothing). `set -f`
+  # kills that expansion; `[[ str == pat ]]` below still pattern-matches.
+  local had_noglob=0
+  case $- in *f*) had_noglob=1 ;; esac
+  set -f
   for p in ${pats}; do
     [[ -z "${p}" ]] && continue
     if [[ "${p}" == */* ]]; then
       # Pattern includes a slash → match full_name
       # shellcheck disable=SC2053
-      [[ "${full}" == ${p} ]] && return 0
+      if [[ "${full}" == ${p} ]]; then rc=0; break; fi
     else
       # Bare pattern → match basename only
       # shellcheck disable=SC2053
-      [[ "${name}" == ${p} ]] && return 0
+      if [[ "${name}" == ${p} ]]; then rc=0; break; fi
     fi
   done
-  return 1
+  (( had_noglob )) || set +f
+  return "${rc}"
 }
 
 # filter_repos <source> <allow_globs> <deny_globs>
