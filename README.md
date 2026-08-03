@@ -14,11 +14,35 @@ npm run bootstrap-droplet   ──▶   apt packages, gh CLI, cron job
                             (cron) github-backup.sh runs nightly
                                     gh api --paginate  → repo list
                                     git clone --mirror (new repos)
-                                    git remote update  (known repos)
+                                    git remote update --prune (known repos)
 ```
 
 All mirrors are stored as bare repos at `/opt/github-backups/<owner>_<repo>.git`.
 Any standard `git clone` command that accepts a path works against them over SSH.
+
+### Deleted branches and tags
+
+The mirror tracks GitHub — it does not accumulate history. Every refresh runs
+`git remote update --prune`, so a ref that is gone upstream is gone from the
+mirror too.
+
+- Delete a branch or tag on GitHub, and the next sync removes it from the
+  mirror. This holds for both refresh paths: the webhook listener and the
+  nightly cron sweep both delegate to `droplet/sync-one-repo.sh`.
+- The commits that only that ref reached become unreachable. They are not
+  deleted at the same moment, but nothing preserves them either — git's own
+  automatic `gc` eventually destroys them, on git's default schedule
+  (`gc.auto` = 6700 loose objects, `gc.pruneExpire` = 2 weeks). This project
+  configures neither, so that delay is a side effect of git's defaults, not a
+  retention policy.
+- A force-push behaves the same way: the mirror follows the new tip, and the
+  overwritten commits age out.
+
+So this is a mirror, not an archive. It protects against losing access to
+github.com — account lockout, org deletion, takedown. It does not protect
+against a deletion or force-push that goes unnoticed: such a ref is
+recoverable from the mirror only until git collects it, and the droplet has no
+retention or snapshot layer.
 
 ---
 
@@ -410,7 +434,7 @@ against source #1. Removing `githubUserOrOrg` is a v2 breaking change, deferred.
 
 ## Webhook setup
 
-The webhook listener delivers near-instant `git remote update` per pushed
+The webhook listener delivers near-instant `git remote update --prune` per pushed
 repo. The nightly cron sweep stays as a safety net for missed deliveries,
 deleted repos, and idle repos that never push.
 
@@ -541,6 +565,10 @@ The droplet mirrors are a read-only sink. Recovery flows are one-way:
 `droplet → local`. There is no automated path to push local changes back
 to the droplet, and no automated path to re-hydrate github.com after a
 loss — both are manual operator actions, scoped to v1 by design.
+
+Recovery is also limited to refs the mirror still holds: a branch, tag, or
+commit deleted or overwritten on GitHub is not recoverable here once git has
+collected it — see [Deleted branches and tags](#deleted-branches-and-tags).
 
 ### Scenario 1: Single-repo recovery (everyday case)
 
