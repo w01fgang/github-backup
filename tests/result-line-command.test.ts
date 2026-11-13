@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resultLineCommand } from "../scripts/lib/result-line";
+import { resultLineCommand, resultLineNames } from "../scripts/lib/result-line";
 
 const OLD = "[2026-01-01T00:00:00Z] BACKUP_REPO_RESULT source=o owner=o repo=r action=update";
 const NEW = "[2026-01-02T00:00:00Z] BACKUP_REPO_RESULT source=o owner=o repo=r action=clone";
@@ -46,4 +46,23 @@ test("finds the result line when the GitHub owner case differs from the source n
   const line =
     "[2026-01-02T00:00:00Z] BACKUP_REPO_RESULT source=acme owner=Acme repo=r action=update\n";
   assert.equal(run(line, 0, "r", "acme", "Acme"), line.trim());
+});
+
+const LINE = (owner: string, repo: string): string =>
+  `[2026-01-02 00:00:00] BACKUP_REPO_RESULT source=s owner=${owner} repo=${repo} action=update duration_ms=5`;
+
+test("resultLineNames finds the result line of a denied repo", () => {
+  assert.equal(resultLineNames(LINE("acme", "foo") + "\n", "acme", "foo"), true);
+});
+
+test("resultLineNames does not match a repo that shares only a name prefix", () => {
+  assert.equal(resultLineNames(LINE("acme", "foo-bar") + "\n", "acme", "foo"), false);
+});
+
+test("resultLineNames does not match the same repo name under another owner", () => {
+  assert.equal(resultLineNames(LINE("other", "foo") + "\n", "acme", "foo"), false);
+});
+
+test("resultLineNames reports an empty log as having no line", () => {
+  assert.equal(resultLineNames("", "acme", "foo"), false);
 });

@@ -31,6 +31,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
+import { mirrorCountCovers } from "./lib/mirror-count";
 import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
 import {
   summariesSinceCommand,
@@ -233,7 +234,7 @@ function cloneProbe(
 /**
  * Step 8: parse BACKUP_SUMMARY from tail of /var/log/github-backup.log.
  * Enforce mirrored == upstream && failed == 0 (D-02). Cross-check filesystem
- * count of *.git dirs == mirrored.
+ * count of *.git dirs >= mirrored (extra mirrors stay on disk, issue #25).
  *
  * Bash is the single source of truth for the upstream count — we do NOT
  * re-derive it via gh api here.
@@ -364,7 +365,8 @@ function enforcePassBar(
     }
   }
 
-  // Cross-check filesystem count.
+  // Cross-check filesystem count: it must cover `mirrored`. Extra mirrors of
+  // denied, deleted or renamed repos stay on disk (issue #25).
   // Phase 6: mirrors are at ${REMOTE_DIR}/<source>/<owner>_<repo>.git.
   // find -maxdepth 2 also catches the legacy Phase 1 top-level layout
   // during the migration window.
@@ -375,9 +377,9 @@ function enforcePassBar(
     `find ${REMOTE_DIR} -maxdepth 2 -type d -name "*.git" 2>/dev/null | wc -l`
   );
   const fsCount = parseInt(fsCountStr.trim(), 10);
-  if (fsCount !== mirrored) {
+  if (!mirrorCountCovers(fsCount, mirrored)) {
     bail(
-      `Filesystem mirror count (${fsCount}) does not match BACKUP_SUMMARY mirrored (${mirrored})`
+      `Filesystem mirror count (${fsCount}) is less than BACKUP_SUMMARY mirrored (${mirrored})`
     );
   }
   console.log(`   Filesystem cross-check OK — ${fsCount} *.git dirs`);

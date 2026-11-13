@@ -354,6 +354,8 @@ See `config.example.json` for the full shape.
 - **Non-empty `allow` ⇒ a repo must match at least one allow glob to pass.**
 - **`deny` always wins on conflict** — if any deny glob matches, the repo is
   dropped, even if an allow glob also matched (ROADMAP SC#4).
+- A mirror that exists when a deny glob is added stays on disk until the owner
+  removes it.
 - Globs use bash `case` syntax: `*`, `?`, `[..]`. A bare pattern like `foo-*`
   matches the repo basename (after the `owner/`); an `owner/name` pattern like
   `acme/foo-*` matches the full name verbatim.
@@ -415,7 +417,8 @@ Five assertion groups against a live droplet:
    remains (legacy fully migrated).
 3. Per-source `BACKUP_SOURCE_SUMMARY` log line per source; aggregate
    `BACKUP_SUMMARY` upstream/mirrored equal the sum of per-source lines.
-4. `repos.deny` enforcement — denied repos have no on-disk mirror.
+4. `repos.deny` enforcement — the run does not sync a denied repo: it writes
+   no `BACKUP_REPO_RESULT` line for it.
 5. The TS `envSlot()` and bash `slot()` functions agree on every
    configured source name (cross-language contract).
 

@@ -239,6 +239,7 @@ primitives:
       - scripts/lib/repo-full-name.ts
       - scripts/lib/repo-list-command.ts
       - scripts/lib/mirror-size.ts
+      - scripts/lib/mirror-count.ts
       - scripts/lib/uat-stale-log.ts
       - scripts/lib/uat-source-rows.ts
     docs:

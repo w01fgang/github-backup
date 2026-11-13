@@ -8,7 +8,9 @@
  *   1. config + env contract     — cfg.sources matches backup.env GITHUB_SOURCES
  *   2. namespaced mirror layout  — D-07 (${BACKUP_DIR}/<source>/<owner>_<repo>.git)
  *   3. SUMMARY contract          — D-16 per-source + Phase 1 aggregate
- *   4. REPOS-01 deny enforcement — SC#4 + SC#5
+ *   4. REPOS-01 deny enforcement — SC#4 + SC#5 (the run writes no
+ *                                   BACKUP_REPO_RESULT line for a denied repo;
+ *                                   an old mirror may stay on disk, issue #25)
  *   5. slot ↔ envSlot agreement  — cross-plan contract guard (TS vs bash)
  *
  * Group 6 (webhook routing into namespaced paths) is owned by
@@ -31,9 +33,11 @@ import {
 import { sshFlags, runCapture } from "../lib/ssh";
 import {
   summariesSinceCommand,
+  resultLinesSinceCommand,
   logSizeCommand,
   parseLogOffset,
 } from "../lib/log-window";
+import { resultLineNames } from "../lib/result-line";
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -210,19 +214,15 @@ function group2NamespacedLayout(cfg: Config, dropInfo: DropletInfo): void {
   );
 }
 
-// ─── Group 3 ──────────────────────────────────────────────────────────────
-function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
-  console.log("\n— Group 3: SUMMARY contract (D-16 + Phase 1 aggregate) —");
-
-  if (cfg.sources.length < 2) {
-    softSkip(`needs >= 2 sources to exercise; skipping`);
-    return;
-  }
-
-  const ip = dropInfo.ip;
-  const user = cfg.sshUser;
-  const key = cfg.sshKeyPath;
-
+/**
+ * Triggers a synchronous backup run and returns the log byte offset recorded
+ * before it, plus the droplet-local start time.
+ */
+function triggerBackupRun(
+  ip: string,
+  user: string,
+  key: string
+): { logOffset: number; tStart: string } {
   // Trigger a fresh backup. REQUIRE_LOCK=1 makes flock wait if cron is mid-run
   // instead of exiting 0 (Phase 1 NR-06 carries through).
   console.log(
@@ -247,6 +247,26 @@ function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
     );
     process.exit(1);
   }
+  return { logOffset, tStart };
+}
+
+// ─── Group 3 ──────────────────────────────────────────────────────────────
+function group3SummaryContract(
+  cfg: Config,
+  dropInfo: DropletInfo
+): number | null {
+  console.log("\n— Group 3: SUMMARY contract (D-16 + Phase 1 aggregate) —");
+
+  if (cfg.sources.length < 2) {
+    softSkip(`needs >= 2 sources to exercise; skipping`);
+    return null;
+  }
+
+  const ip = dropInfo.ip;
+  const user = cfg.sshUser;
+  const key = cfg.sshKeyPath;
+
+  const { logOffset, tStart } = triggerBackupRun(ip, user, key);
 
   const tail = sshCapture(ip, user, key, summariesSinceCommand(REMOTE_LOG, logOffset));
 
@@ -328,10 +348,15 @@ function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
     agg!.failed === 0 && agg!.failed === sumFailed,
     `aggregate failed === 0 and equals sum of per-source failed (${sumFailed})`
   );
+  return logOffset;
 }
 
 // ─── Group 4 ──────────────────────────────────────────────────────────────
-function group4DenyEnforcement(cfg: Config, dropInfo: DropletInfo): void {
+function group4DenyEnforcement(
+  cfg: Config,
+  dropInfo: DropletInfo,
+  group3LogOffset: number | null
+): void {
   console.log("\n— Group 4: REPOS-01 deny enforcement (SC#4) —");
 
   const denySource: NormalizedSource | undefined = cfg.sources.find(
@@ -403,13 +428,28 @@ function group4DenyEnforcement(cfg: Config, dropInfo: DropletInfo): void {
     return;
   }
 
-  // Assert each denied repo is NOT mirrored on disk under the source.
+  // The run does not delete a mirror, so a mirror made before the deny glob
+  // existed stays on disk (issue #25). Judge the run instead: the log from
+  // the offset recorded before the run must hold no result line of a denied
+  // repo. Group 3 runs the backup when it has >= 2 sources; otherwise this
+  // group runs it.
+  const logOffset =
+    group3LogOffset ?? triggerBackupRun(ip, user, key).logOffset;
+  const resultLines = sshCapture(
+    ip,
+    user,
+    key,
+    resultLinesSinceCommand(REMOTE_LOG, logOffset)
+  );
+  assert(
+    resultLines.trim().length > 0,
+    `the run wrote BACKUP_REPO_RESULT lines (an empty window would pass every denied repo)`
+  );
   for (const r of deniedRepos) {
     const [owner, name] = r.split("/");
-    const mirrorPath = `${REMOTE_DIR}/${denySource.name}/${owner}_${name}.git`;
     assert(
-      !sshExitsZero(ip, user, key, `test -e ${mirrorPath}`),
-      `denied repo "${r}" has NO mirror at ${mirrorPath} (REPOS-01 SC#4)`
+      !resultLineNames(resultLines, owner, name),
+      `denied repo "${r}" got no BACKUP_REPO_RESULT line in this run (REPOS-01 SC#4)`
     );
   }
 }
@@ -449,8 +489,8 @@ async function main(): Promise<void> {
 
   group1ConfigContract(cfg, dropInfo);
   group2NamespacedLayout(cfg, dropInfo);
-  group3SummaryContract(cfg, dropInfo);
-  group4DenyEnforcement(cfg, dropInfo);
+  const group3LogOffset = group3SummaryContract(cfg, dropInfo);
+  group4DenyEnforcement(cfg, dropInfo, group3LogOffset);
   group5SlotAgreement(cfg, dropInfo);
 
   console.log("\n— Group 6: webhook routing into namespaced paths —");
