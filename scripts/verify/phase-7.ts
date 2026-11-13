@@ -415,24 +415,31 @@ function chooseTarget(
     const parsed = parseRepoSlug(cand);
     if (!parsed) continue;
     if (!SLUG_RE.test(parsed.owner) || !SLUG_RE.test(parsed.repo)) continue;
-    const src = cfg.sources.find((s) => s.name === parsed.owner);
+    const src = cfg.sources.find(
+      (s) => s.name.toLowerCase() === parsed.owner.toLowerCase()
+    );
     if (!src) continue;
     // The cron run names each mirror after GitHub's full_name casing and
     // filters on it, so resolve that casing before the filter and the path.
     const field = cfg.webhookTestRepo === cand ? "webhookTestRepo" : "restoreTestRepo";
-    let fullName = "";
-    try {
-      fullName = sshCapture(
-        ip,
-        user,
-        key,
+    const lookupCmd =
+      `ssh ${sshFlags(key)} ${user}@${ip} ` +
+      shq(
         `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
           `gh api repos/${parsed.owner}/${parsed.repo} --jq .full_name`
-      ).trim();
-    } catch (e) {
-      info(`config.${field} ${cand}: gh api failed, trying the next candidate (${(e as Error).message.split("\n").slice(2).join(" ").trim()})`);
+      );
+    const r = spawnSync(lookupCmd, { shell: true, stdio: "pipe", encoding: "utf8" });
+    if (r.error) throw new Error(`ssh spawn failed: ${r.error.message}`);
+    if (r.status === null || r.status === 255) {
+      throw new Error(
+        `ssh transport failure (exit ${r.status ?? r.signal}): ${(r.stderr ?? "").trim() || "no stderr"}`
+      );
+    }
+    if (r.status !== 0) {
+      info(`config.${field} ${cand}: gh api failed, trying the next candidate (${(r.stderr ?? "").trim()})`);
       continue;
     }
+    const fullName = (r.stdout ?? "").trim();
     const canonical = parseRepoSlug(fullName);
     if (
       !canonical ||
