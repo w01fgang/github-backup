@@ -2,7 +2,7 @@
  * tests/env-slot.test.ts
  *
  * The source-name → env-var slot algorithm exists in three places:
- *   - scripts/lib/config.ts           `envSlot()`   (writes backup.env)
+ *   - scripts/lib/config.ts          `envSlot()`   (bootstrap-droplet.ts writes backup.env with it)
  *   - droplet/github-backup.sh       `slot()`      (cron path reads backup.env)
  *   - droplet/webhook-listener.js    `envSlot()`   (webhook path reads backup.env)
  *
@@ -223,12 +223,9 @@ test("the parity harness itself detects a divergent slot implementation", () => 
 
 // ─── the slot's reason for existing ──────────────────────────────────────────
 
-test("distinct source names never collide onto one env slot in the shipped shapes", () => {
+test("names that differ only in punctuation share one env slot, which is why loadConfig() rejects such a pair", () => {
   const names = ["acme", "acme-corp", "acme_corp", "acme.corp", "AcmeCorp"];
   const slots = names.map(envSlot);
-  // acme-corp / acme_corp / acme.corp all legitimately collapse to ACME_CORP;
-  // that collision is inherent to the algorithm and callers must not rely on
-  // distinctness. This pins the exact set so a change is a conscious one.
   assert.deepEqual(slots, [
     "ACME",
     "ACME_CORP",
