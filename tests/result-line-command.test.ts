@@ -9,12 +9,12 @@ import { resultLineCommand } from "../scripts/lib/result-line";
 const OLD = "[2026-01-01T00:00:00Z] BACKUP_REPO_RESULT source=o owner=o repo=r action=update";
 const NEW = "[2026-01-02T00:00:00Z] BACKUP_REPO_RESULT source=o owner=o repo=r action=clone";
 
-function run(log: string, offset: number, repo = "r"): string {
+function run(log: string, offset: number, repo = "r", source = "o", owner = "o"): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "result-line-"));
   const file = path.join(dir, "github-backup.log");
   fs.writeFileSync(file, log);
   try {
-    return execFileSync("bash", ["-c", resultLineCommand("o", repo, offset, file)], {
+    return execFileSync("bash", ["-c", resultLineCommand(source, owner, repo, offset, file)], {
       encoding: "utf8",
     }).trim();
   } finally {
@@ -40,4 +40,10 @@ test("ignores a result line of another repo after the offset", () => {
 test("a dot in the repo name matches only a dot", () => {
   const other = "[2026-01-02T00:00:00Z] BACKUP_REPO_RESULT source=o owner=o repo=myXrepo action=clone\n";
   assert.equal(run(other, 0, "my.repo"), "");
+});
+
+test("finds the result line when the GitHub owner case differs from the source name", () => {
+  const line =
+    "[2026-01-02T00:00:00Z] BACKUP_REPO_RESULT source=acme owner=Acme repo=r action=update\n";
+  assert.equal(run(line, 0, "r", "acme", "Acme"), line.trim());
 });
