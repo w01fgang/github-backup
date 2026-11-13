@@ -14,8 +14,8 @@ export function repoListCommand(
   accountType: string
 ): string {
   return (
-    `set -a; source ${envFile}; set +a; ` +
-    `source ${endpointLib}; ` +
+    `set -a; source "${envFile}"; set +a; ` +
+    `source "${endpointLib}"; ` +
     `gh api --paginate "$(resolve_repo_endpoint ${sourceName} ${accountType})" --jq ".[].full_name"`
   );
 }

@@ -12,7 +12,8 @@
  *
  * Bails fast on the first failed assertion. No external test framework.
  * Standalone-per-phase (D-09): no shared verify-helpers module, no new SSH
- * wrapper — reuses scripts/lib/ssh.ts + scripts/lib/config.ts only.
+ * wrapper. It imports ssh.ts, config.ts, filter-repos.ts and
+ * repo-list-command.ts from scripts/lib/.
  *
  * Preconditions:
  *   1. .droplet.json exists locally (loadDropletInfo bails otherwise).
