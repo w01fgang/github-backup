@@ -2,7 +2,7 @@
 // droplet/webhook-listener.js
 //
 // Tiny HTTPS-handler (behind Caddy) for GitHub push webhooks.
-// Multi-source (Phase 9): owner must be in GITHUB_SOURCES from
+// Multi-source (Phase 9): owner must match a GITHUB_SOURCES entry, case-insensitive, from
 // /opt/github-backups/backup.env (re-read per request). See docs/DECISIONS.md
 // for the v1 design (phase 03 — webhook, D-01 ─ D-13, D-17) and the multi-source
 // rescope (phase 09 — webhook multi-source + filter parity, D-01 ─ D-05).
@@ -21,10 +21,10 @@
 //     202 + JSON          — push accepted and dispatched to sync-one-repo.sh,
 //                           which waits up to 1 hour for a held per-repo lock
 //     204                 — non-push, non-ping event acknowledged
-//     400                 — bad JSON, missing owner/repo, owner/repo outside [A-Za-z0-9._-]
+//     400                 — bad JSON, missing owner/repo, source/owner/repo outside [A-Za-z0-9._-]
 //     401                 — missing signature or HMAC mismatch
 //     403                 — repo excluded by that source's allow/deny globs
-//     404                 — owner not in GITHUB_SOURCES OR unknown path
+//     404                 — owner matches no GITHUB_SOURCES entry OR unknown path
 //     405                 — method other than POST on /webhook/github
 //     413                 — body exceeds WEBHOOK_MAX_BODY_BYTES (checked pre-auth)
 //     500                 — backup.env unreadable, filter helper unusable, OR
@@ -38,9 +38,10 @@
 //   WEBHOOK_MAX_BODY_BYTES  default 2097152 (2 MiB) — pre-auth request-body cap
 //
 // Per-request read from /opt/github-backups/backup.env:
-//   GITHUB_SOURCES        whitespace-separated set of allowed owner logins.
+//   GITHUB_SOURCES        whitespace-separated source names. A push owner matches
+//                         one name without regard to case (matchSource).
 //   GITHUB_SOURCE_ALLOW_<SLOT> / GITHUB_SOURCE_DENY_<SLOT>
-//                         per-source globs; SLOT = owner uppercased with every
+//                         per-source globs; SLOT = source name uppercased with every
 //                         non-alphanumeric byte replaced by `_`.
 //
 // Output:
@@ -163,6 +164,21 @@ function envSlot(name) {
 }
 
 /**
+ * WEBHOOK-03: the GITHUB_SOURCES entry that names <owner>, spelled as
+ * configured, or undefined. GitHub logins are case-insensitive, so the match
+ * ignores case; an entry with the exact casing wins. Whole names only.
+ */
+function matchSource(sourcesRaw, owner) {
+  if (typeof owner !== "string") return undefined;
+  const sources = sourcesRaw.split(/\s+/).filter(Boolean);
+  const wanted = owner.toLowerCase();
+  return (
+    sources.find((s) => s === owner) ||
+    sources.find((s) => s.toLowerCase() === wanted)
+  );
+}
+
+/**
  * REPOS-01 (WEBHOOK-04): does <owner>/<repo> survive that source's globs?
  *
  * Delegates to the same `filter_repos` the cron path sources rather than
@@ -172,8 +188,8 @@ function envSlot(name) {
  *
  * Throws when the helper cannot be run, so the caller fails CLOSED.
  */
-function passesRepoFilter(owner, repo, env) {
-  const slot = envSlot(owner);
+function passesRepoFilter(source, owner, repo, env) {
+  const slot = envSlot(source);
   const allow = (env[`GITHUB_SOURCE_ALLOW_${slot}`] || "").trim();
   const deny = (env[`GITHUB_SOURCE_DENY_${slot}`] || "").trim();
   if (!allow && !deny) return true;
@@ -186,7 +202,7 @@ function passesRepoFilter(owner, repo, env) {
       'source "$0"; printf \'%s\\n\' "$1" | filter_repos "$2" "$3" "$4"',
       FILTER_LIB,
       full,
-      owner,
+      source,
       allow,
       deny,
     ],
@@ -331,12 +347,11 @@ const server = http.createServer((req, res) => {
     }
 
     let backupEnv;
-    let allowedSources;
+    let sourcesRaw;
     try {
       backupEnv = parseEnvFile(BACKUP_ENV_PATH);
-      const raw = backupEnv.GITHUB_SOURCES || "";
-      allowedSources = new Set(raw.split(/\s+/).filter(Boolean));
-      if (allowedSources.size === 0) {
+      sourcesRaw = backupEnv.GITHUB_SOURCES || "";
+      if (sourcesRaw.trim() === "") {
         throw new Error("GITHUB_SOURCES empty or missing in backup.env");
       }
     } catch (e) {
@@ -345,13 +360,14 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    if (!allowedSources.has(owner)) {
+    const source = matchSource(sourcesRaw, owner);
+    if (!source) {
       res.writeHead(404).end();
       logLine(req, 404, { delivery, owner, reason: "unknown_source" });
       return;
     }
 
-    if (!ARG_RE.test(owner) || !ARG_RE.test(repo)) {
+    if (!ARG_RE.test(source) || !ARG_RE.test(owner) || !ARG_RE.test(repo)) {
       res.writeHead(400).end();
       logLine(req, 400, { delivery, reason: "arg_shape" });
       return;
@@ -361,7 +377,7 @@ const server = http.createServer((req, res) => {
     // to the helper are already constrained to [A-Za-z0-9._-].
     let kept;
     try {
-      kept = passesRepoFilter(owner, repo, backupEnv);
+      kept = passesRepoFilter(source, owner, repo, backupEnv);
     } catch (e) {
       res.writeHead(500).end();
       logLine(req, 500, { delivery, owner, repo, reason: "filter_unavailable" });
@@ -374,14 +390,14 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const r = spawnSync("/usr/bin/systemd-run", syncDispatchArgs(owner, owner, repo), {
+    const r = spawnSync("/usr/bin/systemd-run", syncDispatchArgs(source, owner, repo), {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const dispatchOk = r.status === 0;
     const elapsed = Date.now() - t0;
     const evt = {
       received_at: new Date().toISOString(),
-      source: owner,
+      source,
       owner,
       repo,
       delivery_id: delivery,
@@ -416,7 +432,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-module.exports = { parseEnvFile, envSlot, syncDispatchArgs };
+module.exports = { parseEnvFile, envSlot, matchSource, syncDispatchArgs };
 
 if (IS_ENTRYPOINT) {
   process.on("uncaughtException", (e) => {
