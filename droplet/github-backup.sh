@@ -342,27 +342,27 @@ for SOURCE in "${SOURCES[@]}"; do
     OWNER="${REPO_FULL%%/*}"
     NAME="${REPO_FULL##*/}"
 
-    # Predict per-repo action by mirror-path existence BEFORE invoking the
-    # helper. sync-one-repo.sh now mirrors to
-    # ${BACKUP_DIR}/${SOURCE}/${OWNER}_${REPO}.git (D-07). On non-zero exit
-    # we override ROW_ACTION to "fail" below. Schema enum stays clone | update
-    # | fail (D-12).
-    if [[ -d "${BACKUP_DIR}/${SOURCE}/${OWNER}_${NAME}.git" ]]; then
-      ROW_ACTION="update"
-    else
-      ROW_ACTION="clone"
-    fi
-
     REPO_T0="${EPOCHREALTIME}"
 
     # Per-repo work delegated to sync-one-repo.sh — same handler the webhook
     # listener calls (D-15). The global flock on fd 9 is RETAINED around the
     # whole multi-source run; sync-one-repo.sh additionally takes a per-repo
-    # lock on fd 8 (D-16). Outer wrapper just tallies SUCCESS/FAIL.
-    if "${BACKUP_DIR}/sync-one-repo.sh" "${SOURCE}" "${OWNER}" "${NAME}"; then
+    # lock on fd 8 (D-16). When a webhook sync holds that lock, the helper
+    # waits LOCK_WAIT_SECONDS_REPO seconds for it and then does its own sync
+    # (D-27). The row action is the action that the helper reports in its
+    # BACKUP_REPO_RESULT line. A non-zero exit, which includes a lock timeout
+    # (exit 75), or an exit 0 with no result line is a "fail" row. Schema enum
+    # stays clone | update | fail (D-12).
+    SYNC_OUT="$(LOCK_WAIT_SECONDS_REPO="${LOCK_WAIT_SECONDS_REPO:-600}" "${BACKUP_DIR}/sync-one-repo.sh" "${SOURCE}" "${OWNER}" "${NAME}")" && SYNC_RC=0 || SYNC_RC=$?
+    [[ -n "${SYNC_OUT}" ]] && printf '%s\n' "${SYNC_OUT}"
+    ROW_ACTION="fail"
+    if [[ "${SYNC_RC}" -eq 0 && "${SYNC_OUT}" =~ BACKUP_REPO_RESULT\ source="${SOURCE}"\ owner="${OWNER}"\ repo="${NAME}"\ action=(clone|update)\  ]]; then
+      ROW_ACTION="${BASH_REMATCH[1]}"
       S_SUCCESS=$(( S_SUCCESS + 1 ))
     else
-      ROW_ACTION="fail"
+      if [[ "${SYNC_RC}" -eq 0 ]]; then
+        log "           ✗ sync-one-repo.sh exited 0 with no clone or update BACKUP_REPO_RESULT line for ${REPO_FULL}"
+      fi
       S_FAIL=$(( S_FAIL + 1 ))
     fi
 

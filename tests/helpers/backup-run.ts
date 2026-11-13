@@ -16,6 +16,10 @@ const DROPLET = path.join(REPO_ROOT, "droplet");
 const SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin";
 const PATH_LINE = `export PATH="${SYSTEM_PATH}"`;
 
+export const syncStub = (body: string): string =>
+  `#!/bin/sh\nresult() { echo "[2026-01-01 00:00:00] BACKUP_REPO_RESULT source=$1 owner=$2 repo=$3 action=$4 duration_ms=1"; }\n${body}\n`;
+const SYNC_STUB_UPDATE = syncStub('result "$1" "$2" "$3" update');
+
 export interface GhRoute {
   match: string;
   stdout?: string;
@@ -92,7 +96,7 @@ function prepareBackupDir(backupDir: string, stubDir: string, sources: string[])
     script.replace(PATH_LINE, `export PATH="${stubDir}:${SYSTEM_PATH}"`),
     { mode: 0o755 }
   );
-  fs.writeFileSync(path.join(backupDir, "sync-one-repo.sh"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(backupDir, "sync-one-repo.sh"), SYNC_STUB_UPDATE, { mode: 0o755 });
   fs.writeFileSync(
     path.join(backupDir, "backup.env"),
     `GITHUB_TOKEN=test-token\nGITHUB_USER_OR_ORG=${sources[0]}\n` +
