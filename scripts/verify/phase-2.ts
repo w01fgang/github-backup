@@ -25,6 +25,7 @@ import {
   type DropletInfo,
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import { mirrorSizeCommand } from "../lib/mirror-size";
 
 const REMOTE_STATE_FILE = "/var/lib/github-backup/last-run.json";
 const REMOTE_STATE_DIR = "/var/lib/github-backup";
@@ -320,7 +321,7 @@ function group3DiskReporting(
     info.ip,
     user,
     keyPath,
-    `du -sbD ${REMOTE_BACKUP_DIR} | awk "{print \\$1}"`
+    mirrorSizeCommand(REMOTE_BACKUP_DIR)
   ).trim();
   const liveMirror = parseInt(duStr, 10);
   assert(Number.isFinite(liveMirror), `live du parsed (${liveMirror})`);
