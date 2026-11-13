@@ -12,7 +12,8 @@
  *
  * Bails fast on the first failed assertion. No external test framework.
  * Standalone-per-phase (D-09): no shared verify-helpers module, no new SSH
- * wrapper — reuses scripts/lib/ssh.ts + scripts/lib/config.ts only.
+ * wrapper. It imports ssh.ts, config.ts, filter-repos.ts and
+ * repo-list-command.ts from scripts/lib/.
  *
  * Preconditions:
  *   1. .droplet.json exists locally (loadDropletInfo bails otherwise).
@@ -40,6 +41,7 @@ import {
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
 import { filterRepos } from "../lib/filter-repos";
+import { repoListCommand } from "../lib/repo-list-command";
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -469,10 +471,7 @@ function chooseTarget(
       `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
       `source ${REMOTE_DETECT_LIB}; detect_account_type ${src.name}`;
     const t = sshCapture(ip, user, key, accountTypeCmd).trim();
-    const listCmd =
-      `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
-      `source ${REMOTE_ENDPOINT_LIB}; ` +
-      `gh api --paginate "$(resolve_repo_endpoint ${src.name} ${t})" --jq ".[].full_name"`;
+    const listCmd = repoListCommand(REMOTE_ENV(cfg), REMOTE_ENDPOINT_LIB, src.name, t);
     const repos = sshCapture(ip, user, key, listCmd)
       .split("\n")
       .filter((l) => l.length > 0);
