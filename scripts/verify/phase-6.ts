@@ -8,7 +8,7 @@
  *   1. config + env contract     — cfg.sources matches backup.env GITHUB_SOURCES
  *   2. namespaced mirror layout  — D-07 (${BACKUP_DIR}/<source>/<owner>_<repo>.git)
  *   3. SUMMARY contract          — D-16 per-source + Phase 1 aggregate
- *   4. REPOS-01 deny enforcement — SC#4 + SC#5 (the run writes no
+ *   4. REPOS-01 deny enforcement — SC#4 + SC#5 (the denying source writes no
  *                                   BACKUP_REPO_RESULT line for a denied repo;
  *                                   an old mirror may stay on disk, D-21)
  *   5. slot ↔ envSlot agreement  — cross-plan contract guard (TS vs bash)
@@ -430,8 +430,8 @@ function group4DenyEnforcement(
 
   // The run does not delete a mirror, so a mirror made before the deny glob
   // existed stays on disk (D-21). This group judges the run: the log from
-  // the offset recorded before the run must hold no result line of a denied
-  // repo. Group 3 runs the backup when it has >= 2 sources; otherwise this
+  // the offset recorded before the run must hold no result line that the
+  // denying source wrote for a denied repo. Group 3 runs the backup when it has >= 2 sources; otherwise this
   // group runs it.
   const logOffset =
     group3LogOffset ?? triggerBackupRun(ip, user, key).logOffset;
@@ -451,7 +451,7 @@ function group4DenyEnforcement(
     const [owner, name] = r.split("/");
     assert(
       !resultLineNames(resultLines, denySource.name, owner, name),
-      `denied repo "${r}" got no BACKUP_REPO_RESULT line in this run (REPOS-01 SC#4)`
+      `source "${denySource.name}" wrote no BACKUP_REPO_RESULT line for denied repo "${r}" in this run (REPOS-01 SC#4)`
     );
   }
 }
