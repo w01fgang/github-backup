@@ -19,6 +19,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `VALID-01` | v1.1 Phase 10 | The 8 outstanding Phase 01 human UAT scenarios are run against a live droplet and recorded. | `scripts/uat-runner.ts` (scenarios `phase: "01"`) |
 | `RESTORE-01` | v1.0 Phase 4 | Documented + tested workflow clones any backed-up repo back to a local machine. | `scripts/restore.ts`, `scripts/verify/phase-4.ts` Group 1 |
 | `RESTORE-02` | v1.0 Phase 4 | Restore preserves all branches, tags, and refs. | `scripts/verify/phase-4.ts` Groups 2–3 (sorted `for-each-ref` diff + branch/tag presence) |
+| `CONFIG-01` | v1.1, issue #24 | The droplet scripts support only `/opt/github-backups` as the backup directory. `loadConfig()` rejects any other `backupDir` value. | `scripts/lib/config.ts:loadConfig`, tested by `tests/config-backup-dir.test.ts` |
 | `TEST-01` | v1.0 Phase 1 | A cron-path smoke test (provision → bootstrap → trigger → probe → clone) is runnable on demand. | `scripts/smoke-test.ts` (`npm run smoke-test`) |
 | `TEST-02` | v1.0 Phase 1 | Each phase has an executable verification step beyond visual inspection. | `scripts/verify/phase-1.ts` … `phase-7.ts` (`npm run verify:phase-N`) |
 | `TEST-03` | v1.0 Phase 3 | A webhook-path smoke test registers a webhook, pushes a commit, and observes the mirror update within 30s. | `scripts/verify/phase-3.ts` Groups 4–5 |

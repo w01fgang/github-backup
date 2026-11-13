@@ -149,6 +149,14 @@ const CRON_SAFE_RE = /^[A-Za-z0-9@*,/#? \t-]+$/;
  */
 const RESTORE_TEST_REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
+/**
+ * Source-name → env-var slot. Matches droplet/github-backup.sh's bash `slot()`
+ * and droplet/webhook-listener.js's `envSlot()` byte-for-byte: uppercase, then
+ * replace every non-alphanumeric char with `_`. NO trailing-underscore strip.
+ */
+export const envSlot = (n: string): string =>
+  n.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+
 export function loadConfig(fail: (msg: string) => never = bail): Config {
   const p = path.resolve(process.cwd(), "config.json");
   if (!fs.existsSync(p)) {
@@ -178,6 +186,13 @@ export function loadConfig(fail: (msg: string) => never = bail): Config {
           `Got: ${JSON.stringify(v)}`
       );
     }
+  }
+  if (cfg.backupDir !== "/opt/github-backups") {
+    fail(
+      `config.json field "backupDir" must be "/opt/github-backups"; ` +
+        `the droplet scripts support only this path. ` +
+        `Got: ${JSON.stringify(cfg.backupDir)}`
+    );
   }
   // ─── Phase 6 multi-source normalisation ───────────────────────────────
   // Collapse the two accepted shapes (legacy single-source `githubUserOrOrg`
@@ -209,6 +224,7 @@ export function loadConfig(fail: (msg: string) => never = bail): Config {
 
   const normalised: NormalizedSource[] = [];
   const seen = new Set<string>();
+  const slotOwners = new Map<string, string>();
   for (const e of entries) {
     let name: string;
     let allow: string[] = [];
@@ -258,6 +274,15 @@ export function loadConfig(fail: (msg: string) => never = bail): Config {
       fail(`config.json: duplicate source name "${name}" in githubSources (D-03)`);
     }
     seen.add(name);
+    const slot = envSlot(name);
+    const slotOwner = slotOwners.get(slot);
+    if (slotOwner !== undefined) {
+      fail(
+        `config.json: sources "${slotOwner}" and "${name}" map to the same ` +
+          `env slot ${slot}; rename or remove one of them`
+      );
+    }
+    slotOwners.set(slot, name);
 
     // Glob shape guard: empty + injection-relevant chars rejected. Bash
     // glob meta (* ? [..]) stays allowed — they're literal inside the

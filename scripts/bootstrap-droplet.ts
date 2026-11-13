@@ -25,21 +25,13 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as crypto from "crypto";
-import { Config, bail, loadConfig, loadDropletInfo } from "./lib/config";
+import { Config, bail, envSlot, loadConfig, loadDropletInfo } from "./lib/config";
 import { scpFile, sshFlags, sshRun, runCapture, waitForSsh } from "./lib/ssh";
 import { required as manifestRequired, optional as manifestOptional } from "./lib/droplet-manifest";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // backup.env generator
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Source-name → env-var slot. Matches droplet/github-backup.sh's bash `slot()`
- * and droplet/webhook-listener.js's `envSlot()` byte-for-byte: uppercase, then
- * replace every non-alphanumeric char with `_`. NO trailing-underscore strip.
- */
-export const envSlot = (n: string): string =>
-  n.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 
 /**
  * Write a temporary backup.env to the OS temp dir.

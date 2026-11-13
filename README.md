@@ -676,7 +676,7 @@ crontab -l   # verify
 
 ## Overriding defaults
 
-All values in `config.json` can be overridden. Key fields:
+Each value in `config.json` can be overridden, except `backupDir`. Key fields:
 
 | Field | Default | Override |
 |---|---|---|
@@ -684,7 +684,7 @@ All values in `config.json` can be overridden. Key fields:
 | `size` | `s-1vcpu-1gb` | any size slug |
 | `image` | `ubuntu-22-04-x64` | any Ubuntu image slug |
 | `cronSchedule` | `30 3 * * *` | any valid cron expression |
-| `backupDir` | `/opt/github-backups` | any absolute path on the droplet |
+| `backupDir` | `/opt/github-backups` | `/opt/github-backups` is the only supported value |
 | `allowedSSHCidr` | — | `0.0.0.0/0` to allow all (not recommended) |
 
 `GITHUB_TOKEN` is always an environment variable — never in `config.json`.
