@@ -166,7 +166,8 @@ const SCENARIOS: Scenario[] = [
           // disk count.
           "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
-          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
+          "T=$(detect_account_type \"$SLUG\") || { echo \"source $SLUG: account type lookup failed\" >&2; exit 1; }; " +
+          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$T\")\"; " +
           "set +e; " +
           "LIST=$(gh api --paginate \"$EP\" --jq '.[].full_name' 2>/dev/null); rc=$?; " +
           "set -e; " +

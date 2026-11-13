@@ -5,8 +5,9 @@
 # (resolves Phase 1 plan-checker MED #4 — eliminates the duplicated
 # gh api probe between github-backup.sh and former smoke-test.ts step 8).
 #
-# Sourced (not executed) by github-backup.sh. The function is purely
-# stdout-emitting; callers capture via $(detect_account_type "$slug").
+# Sourced (not executed) by github-backup.sh. The function prints the
+# account type on stdout and a gh error on stderr; callers capture the type
+# via $(detect_account_type "$slug") and check the exit status.
 #
 # Portability: bash 3.2 (macOS /bin/bash runs the UAT runner).
 
