@@ -4,13 +4,14 @@
  *
  * Per-phase executable verification for Phase 3 (TEST-02 / TEST-03 / D-26).
  *
- * Six fail-fast assertion groups against a live droplet:
+ * Seven fail-fast assertion groups against a live droplet:
  *   1. Pre-conditions  (DNS, HTTPS reach, LE cert validity, systemd units)
  *   2. Source resolution (unknown owner → 404)
  *   3. Bad signature (wrong HMAC → 401)
  *   4. End-to-end push (env-gated on cfg.webhookTestRepo)
  *   5. Idempotency (ping twice → 200 twice)
  *   6. Listener-restart survival
+ *   7. Multi-source routing (needs 2 or more sources)
  *
  * Usage:
  *   npm run verify:phase-3
@@ -29,6 +30,7 @@ import {
   type DropletInfo,
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import { listenerAdmitsRepo } from "../lib/listener-admits-repo";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -360,6 +362,7 @@ async function main(): Promise<void> {
     );
   } else {
     const probeRepo = "verify-phase-3-multi-source-probe";
+    let admitted = 0;
     for (const s of cfg.sources) {
       const body = syntheticPushPayload(s.name, probeRepo);
       const sig = signPayload(body, secret);
@@ -369,6 +372,14 @@ async function main(): Promise<void> {
         "X-Hub-Signature-256": sig,
         "User-Agent": "GitHub-Hookshot/test",
       });
+      if (!listenerAdmitsRepo(s, probeRepo)) {
+        assert(
+          r.status === 403,
+          `source "${s.name}" recognised and probe repo denied by its filter (got ${r.status}, want 403)`
+        );
+        continue;
+      }
+      admitted++;
       assert(
         r.status >= 200 && r.status < 300,
         `source "${s.name}" accepted (got ${r.status}, want 2xx)`
@@ -386,6 +397,12 @@ async function main(): Promise<void> {
       assert(
         ev.source === s.name && ev.owner === s.name,
         `last-webhook-event.json source+owner == "${s.name}" (got source="${ev.source}" owner="${ev.owner}")`
+      );
+    }
+    if (admitted === 0) {
+      console.log(
+        `[skip] every source filter denies "${probeRepo}"; the source ` +
+          `attribution in last-webhook-event.json is not checked.`
       );
     }
   }
