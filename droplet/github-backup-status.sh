@@ -290,6 +290,10 @@ emit_text() {
   printf 'Exit code:         %s\n' "$EXIT_CODE"
   printf 'Repos:             ✓ %s   ✗ %s   total %s\n' "$SUCCESS_COUNT" "$FAIL_COUNT" "$TOTAL"
 
+  if (( EXIT_CODE != 0 && FAIL_COUNT == 0 )); then
+    echo "Run stopped early with exit ${EXIT_CODE} — see ${LOG_FILE}"
+  fi
+
   if (( FAIL_COUNT > 0 )); then
     echo "Failed repos:"
     if [[ "$REPOS_JSON" == "[]" ]]; then

@@ -104,7 +104,9 @@ primitives:
     summary: >-
       droplet/github-backup.sh takes the global flock on fd 9, lists the repos
       of each source in GITHUB_SOURCES with gh api, filters them, calls
-      sync-one-repo.sh for each repo, and writes last-run.json atomically.
+      sync-one-repo.sh for each repo, and writes last-run.json atomically. A
+      run that stops early writes last-run.json with its exit code from an
+      EXIT trap.
     code:
       - droplet/github-backup.sh
     docs:
