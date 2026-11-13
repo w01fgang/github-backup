@@ -48,11 +48,12 @@ export function runVisible(
 
 /**
  * Run a local command silently (all output captured).
- * Returns trimmed stdout. Throws on non-zero exit.
+ * Returns trimmed stdout. Throws on non-zero exit. `input`, when given, is
+ * written to the command's stdin.
  */
-export function runCapture(cmd: string): string {
+export function runCapture(cmd: string, input?: string): string {
   try {
-    return execSync(cmd, { encoding: "utf8", stdio: "pipe" }).trim();
+    return execSync(cmd, { encoding: "utf8", stdio: "pipe", input }).trim();
   } catch (err: unknown) {
     const detail =
       err instanceof Error
