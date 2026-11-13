@@ -17,7 +17,7 @@ CI (`.github/workflows/sync-check.yml`) runs all of these commands except `npm r
 
 ## How work moves here
 
-1. **Plan.** A piece of work starts as a plan: `plan.md` at the root, one at a time. A finished plan moves to `docs/plans/done/`. The `.planning/` folder holds the GSD record of the earlier phases. Do not add new plans there.
+1. **Plan.** A piece of work starts as a plan: `plan.md` at the root, one at a time. A plan moves to `docs/plans/done/` when all of its issues are closed. A new `plan.md` starts only after that move, so `Source: plan.md § <n>` points at the plan of each open issue. The `.planning/` folder holds the GSD record of the earlier phases. Do not add new plans there.
 2. **Split.** The plan is split into issues with the `split-plan` skill (`.agents/skills/split-plan/`). Every issue carries `Source: plan.md § <n>` and `Done when:`.
 3. **Human review.** A human reviews the split before any issue is published. No issue is published without their yes.
 4. **Workers.** One worker per issue, each on its own branch or worktree. Pick the model and the effort per issue: the strongest for logic, a cheaper one for views, copy and tests.
@@ -36,7 +36,7 @@ CI (`.github/workflows/sync-check.yml`) runs all of these commands except `npm r
 
 Issues live in files in `docs/issues/<NNN>-<slug>.md`. One place per plan, never a mix.
 
-Every issue carries `Source:` and `Done when:`. Nothing else is required.
+Every issue carries `Source:` and `Done when:`, plus the lines, the front matter and the sections that `split-plan` writes for an issue file. Nothing else is required.
 
 ## Skills
 
