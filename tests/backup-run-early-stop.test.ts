@@ -27,7 +27,7 @@ const killedMidSourceRun = (): BackupRun =>
     fs.writeFileSync(path.join(backupDir, "sync-one-repo.sh"), FAIL_R1_THEN_KILL_THE_RUN, { mode: 0o755 })
   ));
 
-function statusOf(lastRun: BackupRun["lastRun"]) {
+function statusOf(lastRun: BackupRun["lastRun"], args: string[] = []) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "early-stop-status-"));
   try {
     fs.mkdirSync(path.join(root, "backups"));
@@ -35,7 +35,7 @@ function statusOf(lastRun: BackupRun["lastRun"]) {
       path.join(root, "last-run.json"),
       JSON.stringify({ ...lastRun, finished_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") })
     );
-    return spawnSync("bash", [STATUS_SCRIPT], {
+    return spawnSync("bash", [STATUS_SCRIPT, ...args], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -88,4 +88,12 @@ test("a run that ends with a failed repo is not marked as stopped early", { skip
   );
   assert.equal(r.lastRun.stopped_early, false);
   assert.doesNotMatch(statusOf(r.lastRun).stdout, /Run stopped early/);
+});
+
+test("status --json carries stopped_early, so a caller that reads the JSON can tell an early stop from a failed repo", { skip: backupRunSkip }, () => {
+  const stopped = JSON.parse(statusOf(killedMidSourceRun().lastRun, ["--json"]).stdout);
+  assert.equal(stopped.last_run.stopped_early, true);
+  const { stopped_early: _absent, ...oldFile } = killedMidSourceRun().lastRun;
+  const old = JSON.parse(statusOf(oldFile as BackupRun["lastRun"], ["--json"]).stdout);
+  assert.equal(old.last_run.stopped_early, false);
 });
