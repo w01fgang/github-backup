@@ -36,6 +36,7 @@ export interface LastRun {
   success: number;
   fail: number;
   repos: RepoRow[];
+  stopped_early: boolean;
 }
 
 export interface BackupRun {
@@ -99,7 +100,11 @@ function prepareBackupDir(backupDir: string, stubDir: string, sources: string[])
   );
 }
 
-export function runBackup(sources: string[], routes: GhRoute[]): BackupRun {
+export function runBackup(
+  sources: string[],
+  routes: GhRoute[],
+  setup?: (backupDir: string) => void
+): BackupRun {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "backup-run-"));
   const backupDir = path.join(root, "backup");
   const stubDir = path.join(root, "bin");
@@ -110,6 +115,7 @@ export function runBackup(sources: string[], routes: GhRoute[]): BackupRun {
     fs.mkdirSync(stubDir);
     writeGhStub(stubDir, routes, callsFile);
     prepareBackupDir(backupDir, stubDir, sources);
+    setup?.(backupDir);
     const r = spawnSync("/usr/bin/env", ["bash", path.join(backupDir, "github-backup.sh")], {
       encoding: "utf8",
       env: {

@@ -57,6 +57,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-11` | Status reports `NEVER RAN` (non-zero exit) when `last-run.json` is missing and the log has no summary. | `droplet/github-backup-status.sh` |
 | `D-12` | "Skipped" is dropped from the vocabulary; per-repo action is always `clone \| update \| fail`. | `droplet/github-backup.sh` |
 | `D-13` | Status exit codes: `0` fresh success, `1` failures present, `2` stale, `3` never-ran/unreadable. | `droplet/github-backup-status.sh` |
+| `D-14` | A run that stops before the end writes `last-run.json` from an `EXIT` trap, with its exit code, `stopped_early: true`, and counts taken from the `repos[]` rows it has. A run that reaches the end writes `stopped_early: false`. The trap starts after the global lock, so a run that leaves for a held lock writes nothing. Status exits `1` for it, prints `Run stopped early`, and passes `stopped_early` through in `--json`. `SIGHUP`, `SIGINT` and `SIGTERM` become exits 129, 130 and 143, so the trap runs for them. `kill -9` and a power loss run no trap; `D-10` covers them. Issue #26. | `droplet/github-backup.sh`, `droplet/github-backup-status.sh` |
 
 ### Phase 03 — Webhook listener (v1.0)
 
@@ -114,6 +115,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-09` | `scripts/migrate-mirrors.ts` (`npm run migrate-mirrors -- --from <legacy-source>`) is the operator-driven migration path for the ambiguous multi-source case. | `scripts/migrate-mirrors.ts` |
 | `D-16` | `github-backup.sh` emits one `BACKUP_SOURCE_SUMMARY source=<n> upstream=N mirrored=M failed=F` line per source, alongside the unchanged aggregate `BACKUP_SUMMARY`. A source whose account type, repo endpoint or repo list lookup fails counts as one failed unit: its line reads `upstream=1 mirrored=0 failed=1`, and `last-run.json` gets one `repos[]` row with `name` `<source> (repo list)` and `action` `fail`. | `droplet/github-backup.sh`, `scripts/smoke-test.ts`, `scripts/verify/phase-6.ts` |
 | `D-20` | `scripts/verify/phase-6.ts` asserts five groups: config/env contract, namespaced layout, SUMMARY contract, `REPOS-01` deny enforcement, and bash `slot()` ↔ TS `envSlot()` agreement. | `scripts/verify/phase-6.ts` |
+| `D-21` | A mirror stays on disk until the owner removes it, so `smoke-test`, `verify:phase-1` and `verify:phase-6` accept extra mirrors of denied, deleted or renamed repos. The filesystem count check is `fs >= mirrored`; Group 4 of `verify:phase-6` checks that the log of the run holds no `BACKUP_REPO_RESULT` line for a denied repo. Issue #25. | `scripts/lib/mirror-count.ts`, `scripts/lib/result-line.ts`, `scripts/smoke-test.ts`, `scripts/verify/phase-1.ts`, `scripts/verify/phase-6.ts` |
 
 ### Phase 07 — Droplet artifact shipping (v1.1)
 
