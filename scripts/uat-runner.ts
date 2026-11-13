@@ -156,7 +156,7 @@ const SCENARIOS: Scenario[] = [
           // Source the canonical droplet helpers so this gate applies EXACTLY the
           // account-type + allow/deny rules the backup job applies. github-backup.sh
           // mirrors the post-filter KEPT set, so KEPT — not raw upstream — is the
-          // number disk must match (droplet/github-backup.sh:242-255).
+          // number disk must match (the KEPT count in droplet/github-backup.sh).
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
           "source droplet/lib/resolve-repo-endpoint.sh; " +

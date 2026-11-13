@@ -50,7 +50,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-04` | The status binary falls back to tailing `/var/log/github-backup.log`'s summary line when `last-run.json` is missing. | `droplet/github-backup-status.sh` |
 | `D-05` | `/var/lib/github-backup/` is created mode 700 by `droplet/bootstrap.sh`. | `droplet/github-backup.sh`, `scripts/verify/phase-2.ts` |
 | `D-06` | Default status output is a counts header plus failed-repo names; the full per-repo list needs `--verbose`. | `droplet/github-backup-status.sh` |
-| `D-07` | Verbose per-repo lines are formatted `<glyph> <action> <owner>/<repo>`. | `droplet/github-backup-status.sh` |
+| `D-07` | Verbose per-repo lines are formatted `<glyph> <action> <owner>/<repo>`. A source that `record_source_failure` counts prints one line `<glyph> fail <source> (repo list)`. | `droplet/github-backup-status.sh` |
 | `D-08` | Status always shows `df -h` capacity/used and `du -sh` mirror footprint; per-repo size needs `--verbose`. | `droplet/github-backup-status.sh`, `scripts/verify/phase-2.ts` |
 | `D-09` | `--json` emits one JSON object — a superset of `last-run.json` plus `disk` and `staleness` blocks. | `droplet/github-backup-status.sh` |
 | `D-10` | Staleness = `now - finished_at > 2× expected interval`, expected interval parsed from `CRON_SCHEDULE`. | `droplet/github-backup-status.sh` |
