@@ -33,6 +33,7 @@ import { sshFlags, runCapture } from "../lib/ssh";
 import { listenerAdmitsRepo } from "../lib/listener-admits-repo";
 import { REMOTE_LOG, resultLineCommand } from "../lib/result-line";
 import { logSizeCommand } from "../lib/log-window";
+import { canonicalSlug, fullNameCommand } from "../lib/repo-full-name";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -254,11 +255,28 @@ async function main(): Promise<void> {
   if (!cfg.webhookTestRepo) {
     console.log("[skip] cfg.webhookTestRepo not set — group 4 not run");
   } else {
-    const [owner, repo] = cfg.webhookTestRepo.split("/");
+    const [cfgOwner, cfgRepo] = cfg.webhookTestRepo.split("/");
     assert(
-      cfg.sources.some((s) => s.name === owner),
-      `cfg.webhookTestRepo owner "${owner}" matches a configured source name (Phase 6 multi-source: webhookTestRepo owner must be one of ${JSON.stringify(cfg.sources.map((s) => s.name))})`
+      cfg.sources.some((s) => s.name.toLowerCase() === cfgOwner.toLowerCase()),
+      `cfg.webhookTestRepo owner "${cfgOwner}" matches a configured source name (Phase 6 multi-source: webhookTestRepo owner must be one of ${JSON.stringify(cfg.sources.map((s) => s.name))})`
     );
+    let fullName = "";
+    let lookupError = "";
+    try {
+      fullName = sshCapture(
+        cfg,
+        droplet,
+        fullNameCommand("/opt/github-backups/backup.env", cfgOwner, cfgRepo)
+      ).trim();
+    } catch (e) {
+      lookupError = (e as Error).message;
+    }
+    const canonical = canonicalSlug(cfgOwner, cfgRepo, fullName);
+    assert(
+      canonical !== null,
+      `gh api gives the GitHub full_name of ${cfg.webhookTestRepo} (got ${JSON.stringify(fullName || lookupError)})`
+    );
+    const { owner, repo } = canonical!;
     const logSize = sshCapture(cfg, droplet, logSizeCommand(REMOTE_LOG)).trim();
     assert(/^\d+$/.test(logSize), `log size before the push reads as a number (got ${JSON.stringify(logSize)})`);
     const logOffset = parseInt(logSize, 10);
