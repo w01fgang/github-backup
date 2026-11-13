@@ -32,6 +32,7 @@ import {
   type Config,
   type DropletInfo,
 } from "./lib/config";
+import { SOURCE_ROWS_ASSIGN, SOURCE_ROWS_READ_HEAD } from "./lib/uat-source-rows";
 
 function usageError(msg: string): never {
   console.error(`\n❌  ${msg}\n`);
@@ -160,16 +161,13 @@ const SCENARIOS: Scenario[] = [
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
           "source droplet/lib/resolve-repo-endpoint.sh; " +
-          // One row per source: <name>US<allow globs>US<deny globs>, US = 0x1f
-          // (non-whitespace, so an empty allow field is kept by `read`). Falls back
-          // to the deprecated single-source key only when githubSources is absent.
-          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\x1f')); }\"); " +
+          SOURCE_ROWS_ASSIGN +
           "if [ -z \"$ROWS\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
           "TOTAL_UP=0; TOTAL_KEPT=0; TOTAL_DISK=0; " +
           // Compare EACH source's own kept count to its own mirror dir so an
           // unmirrored source #2 fails loudly instead of passing under source #1's
           // disk count.
-          "while IFS=$'\\x1f' read -r SLUG ALLOW DENY; do " +
+          SOURCE_ROWS_READ_HEAD +
           "[ -z \"$SLUG\" ] && continue; " +
           "T=$(detect_account_type \"$SLUG\") || { echo \"source $SLUG: account type lookup failed\" >&2; exit 1; }; " +
           "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$T\")\"; " +
