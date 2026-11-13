@@ -215,7 +215,7 @@ function group2DetectAccountType(cfg: Config, dropInfo: DropletInfo): void {
   );
   assert(
     fnOut.trim() === "User",
-    `detect_account_type for unknown slug returns "User" (default-on-non-200)`
+    `detect_account_type for unknown slug returns "User" (HTTP 404)`
   );
 }
 

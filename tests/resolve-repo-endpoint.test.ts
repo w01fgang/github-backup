@@ -83,10 +83,10 @@ test("a foreign user source keeps /users/<login>, the only endpoint the token ma
   assert.equal(r.stdout, "/users/octocat/repos?type=all&per_page=100");
 });
 
-test("an unusable gh CLI degrades to the public endpoint instead of aborting the caller", () => {
+test("an unusable gh CLI fails the lookup, so a caller never lists the public-only endpoint by mistake", () => {
   const r = resolve("w01fgang", "User", null);
-  assert.equal(r.status, 0, "must not trip the caller's `set -e`");
-  assert.equal(r.stdout, "/users/w01fgang/repos?type=all&per_page=100");
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout, "");
 });
 
 test("an unrecognised account type is treated as a user account", () => {
