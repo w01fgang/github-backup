@@ -32,6 +32,11 @@ import * as os from "os";
 import * as path from "path";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
+import {
+  logSinceCommand,
+  logSizeCommand,
+  parseLogOffset,
+} from "./lib/log-window";
 
 /** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 step 0). */
 const BACKUP_SUMMARY_RE =
@@ -110,8 +115,15 @@ function bootstrap(): void {
  * github-backup.sh writes in its log prefix, so a lexicographic >= compare
  * is monotonic and correct.
  */
-function triggerBackup(ip: string, user: string, keyPath: string): string {
+function triggerBackup(
+  ip: string,
+  user: string,
+  keyPath: string
+): { tStart: string; logOffset: number } {
   console.log(`\n🔁  Triggering ${REMOTE_BACKUP} on droplet (synchronous)…`);
+  const logOffset = parseLogOffset(
+    sshCapture(ip, user, keyPath, logSizeCommand(REMOTE_LOG))
+  );
   const tStart = sshCapture(
     ip,
     user,
@@ -128,7 +140,7 @@ function triggerBackup(ip: string, user: string, keyPath: string): string {
     const msg = err instanceof Error ? err.message : String(err);
     bail(`Remote github-backup.sh failed: ${msg}`);
   }
-  return tStart;
+  return { tStart, logOffset };
 }
 
 /**
@@ -234,7 +246,8 @@ function enforcePassBar(
   ip: string,
   user: string,
   keyPath: string,
-  tStart: string
+  tStart: string,
+  logOffset: number
 ): void {
   console.log("\n🔢  Parsing BACKUP_SUMMARY marker…");
   const tail = sshCapture(ip, user, keyPath, `tail -n 50 ${REMOTE_LOG}`);
@@ -272,16 +285,15 @@ function enforcePassBar(
   }
 
   // Phase 6 D-16: per-source BACKUP_SOURCE_SUMMARY appears once per source.
-  // Parse the same tail and assert: count matches cfg.sources, source names
+  // Parse the log bytes written after the trigger (logOffset) and assert:
+  // count matches cfg.sources, source names
   // match cfg.sources names (set equality), and per-source aggregates sum to
   // the aggregate BACKUP_SUMMARY upstream/mirrored. Additive assertion: the
   // single-source legacy case sees exactly 1 BACKUP_SOURCE_SUMMARY line which
   // trivially passes.
   const cfgPhase6 = loadConfig();
   const sourceMatches: { source: string; upstream: number; mirrored: number; failed: number }[] = [];
-  // Re-fetch a wider tail for the source summaries — they appear once per
-  // source so a 2-source run has 2 lines somewhere in the post-tStart window.
-  const wideTail = sshCapture(ip, user, keyPath, `tail -n 500 ${REMOTE_LOG}`);
+  const wideTail = sshCapture(ip, user, keyPath, logSinceCommand(REMOTE_LOG, logOffset));
   const tsRe = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/;
   for (const line of wideTail.split("\n")) {
     const tsMatch = line.match(tsRe);
@@ -401,7 +413,7 @@ async function main(): Promise<void> {
   bootstrap();
 
   // Step 5: trigger backup.
-  const tStart = triggerBackup(ip, user, keyPath);
+  const { tStart, logOffset } = triggerBackup(ip, user, keyPath);
 
   // Step 6: SSH-probe.
   const remoteMirrorPath = pickRemoteMirror(ip, user, keyPath);
@@ -410,7 +422,7 @@ async function main(): Promise<void> {
   cloneProbe(ip, user, keyPath, remoteMirrorPath);
 
   // Step 8: 100%-pass enforcement via BACKUP_SUMMARY.
-  enforcePassBar(ip, user, keyPath, tStart);
+  enforcePassBar(ip, user, keyPath, tStart, logOffset);
 
   // Step 9: success — droplet preserved (D-04 / D-08).
   console.log(`\n✅  SMOKE: PASS — droplet preserved at ${ip}\n`);

@@ -229,6 +229,7 @@ primitives:
       - scripts/verify/
       - scripts/smoke-test.ts
       - scripts/uat-runner.ts
+      - scripts/lib/log-window.ts
     docs:
       - docs/DECISIONS.md
 
