@@ -61,8 +61,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Paths ─────────────────────────────────────────────────────────────────
-STATE_FILE="/var/lib/github-backup/last-run.json"
-LOG_FILE="/var/log/github-backup.log"
+STATE_DIR="${STATE_DIR:-/var/lib/github-backup}"
+STATE_FILE="${STATE_DIR}/last-run.json"
+LOG_FILE="${LOG_FILE:-/var/log/github-backup.log}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/github-backups}"
 ENV_FILE="${BACKUP_DIR}/backup.env"
 
@@ -179,7 +180,7 @@ compute_disk() {
     read -r DISK_FS DISK_SIZE_B DISK_USED_B DISK_PERCENT < <(
       df -P -B1 "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $1, $2, $3, int($3*100/$2)}'
     ) || true
-    MIRROR_B=$(du -sbD "$BACKUP_DIR" 2>/dev/null | awk '{print $1}')
+    MIRROR_B=$(du -sbD "$BACKUP_DIR" 2>/dev/null | awk '{print $1}') || true
     MIRROR_B=${MIRROR_B:-0}
   else
     DISK_FS=""
@@ -262,7 +263,7 @@ final_exit_code() {
 # ── Output ───────────────────────────────────────────────────────────────
 emit_text() {
   if [[ "$STALE_STATE" == "NEVER_RAN" ]]; then
-    echo "✗ NEVER RAN — no /var/lib/github-backup/last-run.json and no recognizable summary in /var/log/github-backup.log"
+    echo "✗ NEVER RAN — no ${STATE_FILE} and no recognizable summary in ${LOG_FILE}"
     return
   fi
 
@@ -312,7 +313,7 @@ emit_text() {
     jq -r '.[] | (if .action == "fail" then "  ✗ " else "  ✓ " end) + .action + " " + .name' <<<"$REPOS_JSON"
     if [[ -d "$BACKUP_DIR" ]]; then
       local mirror_count
-      mirror_count=$(find -L "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ')
+      mirror_count=$(find -L "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ') || true
       if (( mirror_count > 0 )); then
         echo
         echo "Per-mirror disk usage:"
@@ -320,7 +321,7 @@ emit_text() {
         for d in "$BACKUP_DIR"/*/*.git; do
           [[ -d "$d" ]] || continue
           local sz
-          sz=$(du -shD "$d" 2>/dev/null | awk '{print $1}')
+          sz=$(du -shD "$d" 2>/dev/null | awk '{print $1}') || true
           printf '  %s  %s\n' "$sz" "${d#"$BACKUP_DIR"/}"
         done
       fi

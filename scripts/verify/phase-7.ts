@@ -468,7 +468,7 @@ function chooseTarget(
     const listCmd =
       `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
       `source ${REMOTE_ENDPOINT_LIB}; ` +
-      `gh api "$(resolve_repo_endpoint ${src.name} ${t})" --jq ".[].full_name"`;
+      `gh api --paginate "$(resolve_repo_endpoint ${src.name} ${t})" --jq ".[].full_name"`;
     const repos = sshCapture(ip, user, key, listCmd)
       .split("\n")
       .filter((l) => l.length > 0);

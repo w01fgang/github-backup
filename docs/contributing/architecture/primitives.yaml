@@ -117,7 +117,9 @@ primitives:
       droplet/sync-one-repo.sh takes the per-repo flock on fd 8, then runs
       git clone --mirror or git remote update --prune into
       BACKUP_DIR/source/owner_repo.git, and logs one BACKUP_REPO_RESULT line.
-      When another sync holds the lock, it exits 0 with no result line.
+      When another sync holds the lock, it exits 0 with no result line, unless
+      LOCK_WAIT_SECONDS_REPO is set: then it waits that many seconds. The webhook
+      listener sets it to 3600.
     code:
       - droplet/sync-one-repo.sh
     docs:
@@ -231,6 +233,7 @@ primitives:
       - scripts/verify/
       - scripts/smoke-test.ts
       - scripts/uat-runner.ts
+      - scripts/lib/result-line.ts
     docs:
       - docs/DECISIONS.md
 
