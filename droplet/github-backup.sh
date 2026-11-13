@@ -18,7 +18,11 @@
 #
 # Exit codes:
 #   0 — all repos backed up successfully (or nothing to back up)
-#   1 — one or more repos failed
+#   1 — one or more repos failed, or the run stopped before the end
+#   75 — REQUIRE_LOCK=1 and the wait for the global lock timed out
+#   129, 130, 143 — SIGHUP, SIGINT or SIGTERM stopped the run
+# A run that stops before the end writes its exit code into last-run.json
+# (D-14), except for the exits that come before the global lock is held.
 
 set -euo pipefail
 
