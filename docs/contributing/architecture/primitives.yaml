@@ -1,0 +1,301 @@
+# Primitives map of github-backup.
+#
+# A primitive is a unit that a contributor must know by name. Each primitive
+# owns code roots. The invariants are rules that hold across primitives.
+#
+# A PR names the primitives that it touches and gets one risk label:
+#   composes - the diff connects existing primitives and changes none of them.
+#   extends  - the diff changes the behavior, the shape or the contract of a primitive.
+#   adds     - the diff adds a primitive.
+# A PR that touches no primitive gets no label.
+#
+# Commands:
+#   node scripts/primitives.mjs check
+#   node scripts/primitives.mjs classify --markdown
+
+version: 1
+
+groups:
+  - id: operator
+    name: Operator configuration and transport
+  - id: provisioning
+    name: Droplet provisioning and bootstrap
+  - id: sync
+    name: Mirror sync on the droplet
+  - id: webhook
+    name: Webhook push path
+  - id: operations
+    name: Operator commands
+  - id: verification
+    name: Verification and repo checks
+
+primitives:
+  - id: operator-config
+    group: operator
+    name: Operator config
+    summary: >-
+      loadConfig() in scripts/lib/config.ts reads config.json, checks the
+      fields in SHELL_SAFE_FIELDS against SHELL_SAFE_RE, cronSchedule against
+      CRON_SAFE_RE and webhookHostname against FQDN_RE, and normalizes the
+      sources into cfg.sources. loadDropletInfo() reads .droplet.json.
+    code:
+      - scripts/lib/config.ts
+      - config.example.json
+    docs:
+      - README.md
+      - docs/DECISIONS.md
+
+  - id: ssh-transport
+    group: operator
+    name: SSH transport
+    summary: >-
+      scripts/lib/ssh.ts builds the ssh and scp flags and runs remote commands
+      on the droplet with sshRun, runCapture, runVisible and scpFile.
+      waitForSsh polls until the droplet accepts SSH.
+    code:
+      - scripts/lib/ssh.ts
+
+  - id: droplet-provisioning
+    group: provisioning
+    name: Droplet and firewall provisioning
+    summary: >-
+      scripts/create-droplet.ts finds or creates the droplet and the cloud
+      firewall with doctl, and writes .droplet.json. reconcileRules adds each
+      missing canonical inbound and outbound rule and never removes a rule.
+    code:
+      - scripts/create-droplet.ts
+      - scripts/lib/doctl.ts
+    docs:
+      - README.md
+
+  - id: droplet-bootstrap
+    group: provisioning
+    name: Droplet bootstrap
+    summary: >-
+      scripts/bootstrap-droplet.ts uploads backup.env only when the droplet
+      has none or when --rotate-env or --rotate-webhook-secret is set. It
+      uploads the manifest files over SSH and runs
+      droplet/bootstrap.sh. bootstrap.sh installs the packages, Caddy, Node,
+      the systemd unit and the cron job through droplet/install-cron.sh.
+    code:
+      - scripts/bootstrap-droplet.ts
+      - droplet/bootstrap.sh
+      - droplet/install-cron.sh
+    docs:
+      - README.md
+
+  - id: droplet-manifest
+    group: provisioning
+    name: Droplet file manifest
+    summary: >-
+      scripts/lib/droplet-manifest.ts lists the droplet files that bootstrap
+      ships. bootstrap-droplet.ts stops before the first SSH call when a
+      required file is missing. scripts/sync-readme-manifest.ts renders the
+      list into the managed section of README.md.
+    code:
+      - scripts/lib/droplet-manifest.ts
+      - scripts/sync-readme-manifest.ts
+    docs:
+      - README.md
+
+  - id: backup-run
+    group: sync
+    name: Cron backup run
+    summary: >-
+      droplet/github-backup.sh takes the global flock on fd 9, lists the repos
+      of each source in GITHUB_SOURCES with gh api, filters them, calls
+      sync-one-repo.sh for each repo, and writes last-run.json atomically.
+    code:
+      - droplet/github-backup.sh
+    docs:
+      - README.md
+
+  - id: repo-sync
+    group: sync
+    name: Per-repo mirror sync
+    summary: >-
+      droplet/sync-one-repo.sh takes the per-repo flock on fd 8, then runs
+      git clone --mirror or git remote update --prune into
+      BACKUP_DIR/source/owner_repo.git, and logs one BACKUP_REPO_RESULT line.
+      When another sync holds the lock, it exits 0 with no result line.
+    code:
+      - droplet/sync-one-repo.sh
+    docs:
+      - README.md
+
+  - id: repo-filter
+    group: sync
+    name: Repo allow and deny filter
+    summary: >-
+      filter_repos in droplet/lib/filter-repos.sh applies the allow and deny
+      globs of a source. Deny wins, and an empty allow list passes every repo.
+      scripts/lib/filter-repos.ts runs the same shell function.
+    code:
+      - droplet/lib/filter-repos.sh
+      - scripts/lib/filter-repos.ts
+    docs:
+      - README.md
+
+  - id: repo-listing
+    group: sync
+    name: Repo list endpoint
+    summary: >-
+      droplet/lib/resolve-repo-endpoint.sh picks the GitHub API endpoint that
+      lists the repos of a source. An organization or the token owner gets an
+      endpoint with private repos, and another user gets public repos only.
+      droplet/lib/detect-account-type.sh tells a User from an Organization.
+      scripts/lib/repo-endpoint.ts runs the shell helper.
+    code:
+      - droplet/lib/resolve-repo-endpoint.sh
+      - droplet/lib/detect-account-type.sh
+      - scripts/lib/repo-endpoint.ts
+
+  - id: webhook-listener
+    group: webhook
+    name: Webhook listener
+    summary: >-
+      droplet/webhook-listener.js listens on 127.0.0.1 behind Caddy, on
+      WEBHOOK_LISTEN_PORT with 9100 as the default. For
+      each POST /webhook/github it checks the HMAC-SHA256 signature, the owner
+      against GITHUB_SOURCES and the repo filter, then starts sync-one-repo.sh
+      with systemd-run. A systemd unit runs it.
+    code:
+      - droplet/webhook-listener.js
+      - droplet/Caddyfile.template
+      - droplet/github-backup-webhook.service
+    docs:
+      - README.md
+
+  - id: webhook-registration
+    group: webhook
+    name: Webhook registration
+    summary: >-
+      scripts/register-webhooks.ts reads WEBHOOK_SECRET from the droplet over
+      SSH. With gh api, it creates one GitHub webhook for each repo that the
+      token administers, that passes the filter and that has no hook yet.
+      --update patches the existing hooks.
+    code:
+      - scripts/register-webhooks.ts
+    docs:
+      - README.md
+
+  - id: status
+    group: operations
+    name: Backup status
+    summary: >-
+      droplet/github-backup-status.sh reads last-run.json, the disk usage and
+      the staleness against CRON_SCHEDULE, and exits 0, 1, 2 or 3.
+      scripts/status.ts runs it over SSH and passes its arguments, such as
+      --json and --verbose, through.
+    code:
+      - droplet/github-backup-status.sh
+      - scripts/status.ts
+    docs:
+      - README.md
+
+  - id: restore
+    group: operations
+    name: Restore
+    summary: >-
+      scripts/restore.ts finds the mirror of a slug on the droplet with the
+      find command from scripts/lib/mirror-path.ts, clones it as a bare
+      mirror over SSH, then makes a local working clone.
+    code:
+      - scripts/restore.ts
+      - scripts/lib/mirror-path.ts
+    docs:
+      - README.md
+
+  - id: mirror-migration
+    group: operations
+    name: Legacy mirror migration
+    summary: >-
+      scripts/migrate-mirrors.ts moves the top-level legacy mirrors on the
+      droplet into the folder of one source, with one remote bash command.
+    code:
+      - scripts/migrate-mirrors.ts
+    docs:
+      - README.md
+
+  - id: live-verification
+    group: verification
+    name: Live verification scripts
+    summary: >-
+      scripts/verify/phase-N.ts, scripts/smoke-test.ts and
+      scripts/uat-runner.ts run checks against the live droplet over SSH.
+      The verify and smoke scripts exit 1 at the first failed assertion. The
+      UAT runner reports each scenario and does not stop.
+    code:
+      - scripts/verify/
+      - scripts/smoke-test.ts
+      - scripts/uat-runner.ts
+    docs:
+      - docs/DECISIONS.md
+
+  - id: unit-tests
+    group: verification
+    name: Hermetic unit tests
+    summary: >-
+      tests/*.test.ts run with node --test and need no droplet. They cover the
+      manifest, the env slot parity between bash and TypeScript, the env file
+      parser, the firewall reconcile, the mirror path finder and the repo list
+      endpoint.
+    code:
+      - tests/
+
+  - id: repo-checks
+    group: verification
+    name: Pre-commit hook and CI
+    summary: >-
+      scripts/git-hooks/pre-commit rejects a commit that leaves the README
+      manifest section stale. The sync-check workflow runs the tests, the
+      typecheck, the syntax checks and the README check on a push to master
+      and on a pull request to master.
+      scripts/primitives.mjs checks this map and classifies a diff.
+    code:
+      - scripts/git-hooks/
+      - scripts/primitives.mjs
+      - .github/
+
+invariants:
+  - id: mirror-writes-hold-the-repo-lock
+    summary: >-
+      Every clone and fetch into a droplet mirror runs in sync-one-repo.sh
+      under its per-repo flock on fd 8. The cron run and the webhook listener
+      both call it.
+    code:
+      - droplet/sync-one-repo.sh
+      - droplet/github-backup.sh
+      - droplet/webhook-listener.js
+
+  - id: webhook-requests-are-signed
+    summary: >-
+      The listener answers 401 to a POST /webhook/github with no
+      X-Hub-Signature-256 header or a wrong HMAC, before it parses the
+      payload or starts a sync.
+    code:
+      - droplet/webhook-listener.js
+
+  - id: one-repo-filter
+    summary: >-
+      The cron run, the webhook listener and register-webhooks.ts take each
+      allow and deny decision from filter_repos in droplet/lib/filter-repos.sh.
+      When a source has no allow and no deny globs, the listener and
+      filter-repos.ts pass every repo without the call.
+    code:
+      - droplet/lib/filter-repos.sh
+      - droplet/github-backup.sh
+      - droplet/webhook-listener.js
+      - scripts/lib/filter-repos.ts
+      - scripts/register-webhooks.ts
+
+  - id: readme-manifest-in-sync
+    summary: >-
+      The droplet file manifest section of README.md equals the rendered
+      manifest. The pre-commit hook, which npm install puts in place, and the
+      CI job on master run sync-readme-manifest.ts --check and fail when they
+      differ.
+    code:
+      - scripts/sync-readme-manifest.ts
+      - scripts/git-hooks/
+      - .github/

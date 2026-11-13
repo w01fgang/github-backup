@@ -49,3 +49,29 @@ Shared skills live in `.agents/skills/`, one folder each, with a `SKILL.md` insi
 - After a change to `scripts/lib/droplet-manifest.ts`, run `npm run sync:readme`. The pre-commit hook and CI reject a README that is out of sync.
 - Do not add a script that destroys the droplet. The owner removes it from the DigitalOcean dashboard.
 - When the droplet or its firewall behaves in an unexpected way, compare the applied state (`doctl compute firewall get`) with the intended state first. `doctl` ignores an incorrect parameter without an error, so read its docs before a call.
+
+## Primitives map
+
+The file `docs/contributing/architecture/primitives.yaml` names the primitives of this repo. A primitive is a unit that a contributor must know by name. Each primitive owns code roots. The file also lists the invariants: rules that hold across primitives.
+
+Before you change code:
+
+1. Read the map. Find the primitives that own the files that you change.
+2. Read the invariants. Do not break an invariant. When a change must break one, tell the user before you make the change.
+
+Before you open a PR:
+
+1. Commit all your changes. `classify` reads committed history only, and it does not see staged, unstaged or untracked files.
+2. Run `node scripts/primitives.mjs classify --markdown`. Use `--base <branch>` when the PR does not target `master`.
+3. Put the table in the PR body.
+4. Put one risk label in the PR body:
+   - `composes`: the diff connects existing primitives and changes none of them.
+   - `extends`: the diff changes the behavior, the shape or the contract of a primitive.
+   - `adds`: the diff adds a primitive.
+5. A diff that touches no primitive gets no label. Write that in the PR body.
+
+When a diff adds, removes, renames or moves a primitive, or changes what a summary says:
+
+1. Update the map in the same PR. Edit only the entries that the diff changes.
+2. Run `node scripts/primitives.mjs check`. Its output must start with `primitives map ok`.
+3. Commit the map, then run `classify` again.
