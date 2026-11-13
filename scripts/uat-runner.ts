@@ -588,7 +588,7 @@ async function main(): Promise<void> {
 
   // Load context (cfg always; droplet best-effort — loadDropletInfo() bails
   // hard if .droplet.json is missing, so check existence first).
-  const cfg = loadConfig();
+  const cfg = loadConfig(usageError);
   let droplet: DropletInfo | null = null;
   const dropletPath = path.resolve(process.cwd(), ".droplet.json");
   if (fs.existsSync(dropletPath)) {
