@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
-import { envSlot } from "../scripts/bootstrap-droplet";
+import { envSlot } from "../scripts/lib/config";
 
 const LISTENER = path.resolve(__dirname, "..", "droplet", "webhook-listener.js");
 const parseEnvFile: (filePath: string) => Record<string, string> =

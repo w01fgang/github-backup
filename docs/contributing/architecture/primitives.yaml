@@ -37,7 +37,8 @@ primitives:
       loadConfig() in scripts/lib/config.ts reads config.json, checks the
       fields in SHELL_SAFE_FIELDS against SHELL_SAFE_RE, cronSchedule against
       CRON_SAFE_RE and webhookHostname against FQDN_RE, and normalizes the
-      sources into cfg.sources. loadDropletInfo() reads .droplet.json.
+      sources into cfg.sources. It stops when two sources map to the same
+      envSlot() value. loadDropletInfo() reads .droplet.json.
     code:
       - scripts/lib/config.ts
       - config.example.json
