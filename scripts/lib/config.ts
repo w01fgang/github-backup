@@ -187,6 +187,13 @@ export function loadConfig(fail: (msg: string) => never = bail): Config {
       );
     }
   }
+  if (cfg.backupDir !== "/opt/github-backups") {
+    fail(
+      `config.json field "backupDir" must be "/opt/github-backups"; ` +
+        `the droplet scripts support only this path. ` +
+        `Got: ${JSON.stringify(cfg.backupDir)}`
+    );
+  }
   // ─── Phase 6 multi-source normalisation ───────────────────────────────
   // Collapse the two accepted shapes (legacy single-source `githubUserOrOrg`
   // and `githubSources` array of strings/objects) into `cfg.sources:
