@@ -417,8 +417,8 @@ Five assertion groups against a live droplet:
    remains (legacy fully migrated).
 3. Per-source `BACKUP_SOURCE_SUMMARY` log line per source; aggregate
    `BACKUP_SUMMARY` upstream/mirrored equal the sum of per-source lines.
-4. `repos.deny` enforcement — the run does not sync a denied repo: it writes
-   no `BACKUP_REPO_RESULT` line for it.
+4. `repos.deny` enforcement — the denying source does not sync a denied
+   repo: that source writes no `BACKUP_REPO_RESULT` line for it.
 5. The TS `envSlot()` and bash `slot()` functions agree on every
    configured source name (cross-language contract).
 
