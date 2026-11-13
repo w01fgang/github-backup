@@ -23,7 +23,12 @@ const ENDPOINT_LIB = path.join(REPO_ROOT, "droplet", "lib", "resolve-repo-endpoi
 
 const GH_STUB = `#!/usr/bin/env bash
 paginate=0
-for a in "$@"; do [ "$a" = "--paginate" ] && paginate=1; done
+endpoint=0
+for a in "$@"; do
+  [ "$a" = "--paginate" ] && paginate=1
+  [ "$a" = "/orgs/acme/repos?type=all&per_page=100" ] && endpoint=1
+done
+[ "$endpoint" = 1 ] || { echo "unexpected args: $*" >&2; exit 1; }
 echo "acme/first-page-repo"
 if [ "$paginate" = 1 ]; then echo "acme/second-page-repo"; fi
 `;
