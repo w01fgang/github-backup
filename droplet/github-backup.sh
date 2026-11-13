@@ -96,7 +96,7 @@ write_last_run() {
     --argjson repos "${repos_json}" \
     --argjson stopped_early "${stopped_early}" \
     '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos, stopped_early:$stopped_early}' \
-    > "${tmp_file}"
+    > "${tmp_file}" || { rm -f "${tmp_file}"; return 1; }
   mv -f "${tmp_file}" "${STATE_DIR}/last-run.json"
   chmod 640 "${STATE_DIR}/last-run.json"
   LAST_RUN_WRITTEN=1

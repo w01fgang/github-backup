@@ -82,6 +82,24 @@ test("status names the early stop and the failed repo for a run that stopped aft
   assert.match(res.stdout, /^  ✗ fail  good\/r1$/m);
 });
 
+const JQ_FAILS_ON_THE_LAST_RUN_WRITE =
+  '#!/bin/sh\ncase "$*" in *stopped_early*) exit 5 ;; esac\nPATH=/usr/local/bin:/usr/bin:/bin exec jq "$@"\n';
+
+test("an early stop whose last-run.json write fails keeps the file of the run before it, so status does not read an empty file", { skip: backupRunSkip }, () => {
+  const r = runBackup(["one", "two"], [], (backupDir) => {
+    const root = path.dirname(backupDir);
+    fs.mkdirSync(path.join(backupDir, "one_legacy.git"));
+    fs.writeFileSync(path.join(root, "bin", "jq"), JQ_FAILS_ON_THE_LAST_RUN_WRITE, { mode: 0o755 });
+    fs.mkdirSync(path.join(root, "state"));
+    fs.writeFileSync(
+      path.join(root, "state", "last-run.json"),
+      JSON.stringify({ exit_code: 0, total: 7, success: 7, fail: 0, repos: [], stopped_early: false })
+    );
+  });
+  assert.equal(r.status, 1);
+  assert.equal(r.lastRun.total, 7);
+});
+
 test("a run that ends with a failed repo is not marked as stopped early", { skip: backupRunSkip }, () => {
   const r = runBackup(["good"], ROUTES, (backupDir) =>
     fs.writeFileSync(path.join(backupDir, "sync-one-repo.sh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
