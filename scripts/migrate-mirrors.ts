@@ -41,28 +41,12 @@ function parseArgs(argv: string[]): { from: string } {
   return { from };
 }
 
-function main(): void {
-  const { from } = parseArgs(process.argv);
-  const cfg = loadConfig();
-  const dropInfo = loadDropletInfo();
-
-  if (!cfg.sources.some((s) => s.name === from)) {
-    bail(
-      `source "${from}" not found in cfg.sources ` +
-        `(${JSON.stringify(cfg.sources.map((s) => s.name))}). ` +
-        `Refusing to move mirrors into a destination that is not a configured ` +
-        `Phase 6 source — fix config.json first, then re-run.`
-    );
-  }
-
-  const ip = dropInfo.ip;
-  const user = cfg.sshUser;
-  const key = cfg.sshKeyPath;
-  const backupDir = cfg.backupDir;
-
-  // Both `from` and `backupDir` are SHELL_SAFE per loadConfig() — single-quote
-  // interpolation into the remote command is safe.
-  const remoteScript = `set -euo pipefail
+/**
+ * `from` and `backupDir` are SHELL_SAFE per loadConfig(), so interpolating them
+ * into the script is safe. The script runs through `bash -s` on stdin.
+ */
+export function migrateScript(backupDir: string, from: string): string {
+  return `set -euo pipefail
 cd "${backupDir}"
 shopt -s nullglob
 TOP=( *.git )
@@ -84,10 +68,35 @@ for d in "\${TOP[@]}"; do
   MOVED=\$(( MOVED + 1 ))
 done
 echo "MIGRATE_RESULT moved=\${MOVED} skipped_existing=\${SKIP}"`;
+}
+
+export function migrateCommand(key: string, user: string, ip: string): string {
+  return `ssh ${sshFlags(key)} ${user}@${ip} bash -s`;
+}
+
+function main(): void {
+  const { from } = parseArgs(process.argv);
+  const cfg = loadConfig();
+  const dropInfo = loadDropletInfo();
+
+  if (!cfg.sources.some((s) => s.name === from)) {
+    bail(
+      `source "${from}" not found in cfg.sources ` +
+        `(${JSON.stringify(cfg.sources.map((s) => s.name))}). ` +
+        `Refusing to move mirrors into a destination that is not a configured ` +
+        `Phase 6 source — fix config.json first, then re-run.`
+    );
+  }
+
+  const ip = dropInfo.ip;
+  const user = cfg.sshUser;
+  const key = cfg.sshKeyPath;
+  const backupDir = cfg.backupDir;
 
   console.log(`\n🔁  migrate-mirrors: moving top-level *.git into ${backupDir}/${from}/ on ${ip}…`);
   const out = runCapture(
-    `ssh ${sshFlags(key)} ${user}@${ip} 'bash -c ${JSON.stringify(remoteScript)}'`
+    migrateCommand(key, user, ip),
+    migrateScript(backupDir, from)
   );
 
   // Echo stdout (the result line + any messages). Skip notes go to stderr on
@@ -110,9 +119,11 @@ echo "MIGRATE_RESULT moved=\${MOVED} skipped_existing=\${SKIP}"`;
   );
 }
 
-try {
-  main();
-} catch (err) {
-  console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error(`\n❌  ${err instanceof Error ? err.message : err}\n`);
+    process.exit(1);
+  }
 }

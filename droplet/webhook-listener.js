@@ -18,7 +18,8 @@
 //     Headers:  X-GitHub-Event, X-Hub-Signature-256, X-GitHub-Delivery, Content-Type
 //     Body:     raw JSON (Buffer)
 //     200 + "pong"        — ping event
-//     202 + JSON          — push accepted and dispatched to sync-one-repo.sh
+//     202 + JSON          — push accepted and dispatched to sync-one-repo.sh,
+//                           which waits up to 1 hour for a held per-repo lock
 //     204                 — non-push, non-ping event acknowledged
 //     400                 — bad JSON, missing owner/repo, source/owner/repo outside [A-Za-z0-9._-]
 //     401                 — missing signature or HMAC mismatch
@@ -134,6 +135,22 @@ if (IS_ENTRYPOINT) {
 
 const LAST_EVENT_PATH = path.join(STATE_DIR, "last-webhook-event.json");
 const SYNC_SCRIPT = path.join(BACKUP_DIR, "sync-one-repo.sh");
+
+// A webhook sync waits up to this many seconds for a held per-repo lock (D-16:
+// same repo serializes). The cron path keeps the non-blocking skip.
+const REPO_LOCK_WAIT_SECONDS = 3600;
+
+function syncDispatchArgs(source, owner, repo) {
+  return [
+    "--collect",
+    "--no-block",
+    `--setenv=LOCK_WAIT_SECONDS_REPO=${REPO_LOCK_WAIT_SECONDS}`,
+    SYNC_SCRIPT,
+    source,
+    owner,
+    repo,
+  ];
+}
 const ARG_RE = /^[A-Za-z0-9._-]+$/;
 const FILTER_LIB = path.join(BACKUP_DIR, "lib", "filter-repos.sh");
 
@@ -373,11 +390,9 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const r = spawnSync(
-      "/usr/bin/systemd-run",
-      ["--collect", "--no-block", SYNC_SCRIPT, source, owner, repo],
-      { stdio: ["ignore", "pipe", "pipe"] }
-    );
+    const r = spawnSync("/usr/bin/systemd-run", syncDispatchArgs(source, owner, repo), {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     const dispatchOk = r.status === 0;
     const elapsed = Date.now() - t0;
     const evt = {
@@ -417,7 +432,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-module.exports = { parseEnvFile, envSlot, matchSource };
+module.exports = { parseEnvFile, envSlot, matchSource, syncDispatchArgs };
 
 if (IS_ENTRYPOINT) {
   process.on("uncaughtException", (e) => {

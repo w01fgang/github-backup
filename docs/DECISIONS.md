@@ -112,7 +112,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-07` | Mirrors live at `${BACKUP_DIR}/<source>/<owner>_<repo>.git` — one namespaced subdirectory per configured source. | `droplet/github-backup.sh`, `scripts/verify/phase-6.ts` |
 | `D-08` | On a run, top-level legacy `*.git` dirs auto-migrate into `<source>/` only when exactly one source is configured and it matches the previously-written legacy `GITHUB_USER_OR_ORG`; any other case aborts, pointing at `migrate-mirrors`. | `droplet/github-backup.sh` |
 | `D-09` | `scripts/migrate-mirrors.ts` (`npm run migrate-mirrors -- --from <legacy-source>`) is the operator-driven migration path for the ambiguous multi-source case. | `scripts/migrate-mirrors.ts` |
-| `D-16` | `github-backup.sh` emits one `BACKUP_SOURCE_SUMMARY source=<n> upstream=N mirrored=M failed=F` line per source, alongside the unchanged aggregate `BACKUP_SUMMARY`. | `droplet/github-backup.sh`, `scripts/smoke-test.ts`, `scripts/verify/phase-6.ts` |
+| `D-16` | `github-backup.sh` emits one `BACKUP_SOURCE_SUMMARY source=<n> upstream=N mirrored=M failed=F` line per source, alongside the unchanged aggregate `BACKUP_SUMMARY`. A source whose repo list fails counts as one failed unit: its line reads `upstream=1 mirrored=0 failed=1`, and `last-run.json` gets one `repos[]` row with `name` `<source> (repo list)` and `action` `fail`. | `droplet/github-backup.sh`, `scripts/smoke-test.ts`, `scripts/verify/phase-6.ts` |
 | `D-20` | `scripts/verify/phase-6.ts` asserts five groups: config/env contract, namespaced layout, SUMMARY contract, `REPOS-01` deny enforcement, and bash `slot()` ↔ TS `envSlot()` agreement. | `scripts/verify/phase-6.ts` |
 
 ### Phase 07 — Droplet artifact shipping (v1.1)
