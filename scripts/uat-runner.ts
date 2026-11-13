@@ -32,6 +32,7 @@ import {
   type Config,
   type DropletInfo,
 } from "./lib/config";
+import { removeStaleP0401Log } from "./lib/uat-stale-log";
 
 function usageError(msg: string): never {
   console.error(`\n❌  ${msg}\n`);
@@ -616,16 +617,7 @@ async function main(): Promise<void> {
     } — runtime ${runtimeCommit}`,
   );
 
-  // p04-02 reads the log that p04-01 writes. When this run includes p04-01,
-  // remove the old log first, so p04-02 reads only this run's p04-01 result.
-  // A run of p04-02 alone reads the log of the last p04-01 run.
-  if (toRun.some((s) => s.id === "p04-01")) {
-    try {
-      fs.rmSync("/tmp/uat-p04-01.log", { force: true });
-    } catch (e) {
-      console.log(`⚠  cannot remove /tmp/uat-p04-01.log: ${(e as Error).message}`);
-    }
-  }
+  removeStaleP0401Log(toRun);
 
   // Execute. Survey mode — DO NOT bail-fast. Iterate all, collect, exit at end.
   const results: ScenarioResult[] = [];
