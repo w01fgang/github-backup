@@ -10,7 +10,7 @@
  *
  * Survey-style runner: DOES NOT bail-fast. Iterates ALL filtered scenarios,
  * collects results, then exits at the end (0 = all scripted passed, 1 = any
- * scripted failed, 2 = runner crashed).
+ * scripted failed, 2 = runner crashed or usage error).
  *
  * Usage:
  *   npm run uat                                   # all 22
@@ -29,10 +29,14 @@ import * as path from "path";
 import {
   loadConfig,
   loadDropletInfo,
-  bail,
   type Config,
   type DropletInfo,
 } from "./lib/config";
+
+function usageError(msg: string): never {
+  console.error(`\n❌  ${msg}\n`);
+  process.exit(2);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -524,19 +528,19 @@ function parseFlags(args: string[]): ParsedFlags {
       case "--phase": {
         const v = args[++i];
         if (v !== "01" && v !== "03" && v !== "04" && v !== "8-deferred" && v !== "all") {
-          bail(`--phase must be one of 01|03|04|8-deferred|all (got: ${v ?? "<missing>"})`);
+          usageError(`--phase must be one of 01|03|04|8-deferred|all (got: ${v ?? "<missing>"})`);
         }
         flags.phase = v as PhaseTag | "all";
         break;
       }
       case "--scenario": {
         const v = args[++i];
-        if (!v) bail(`--scenario requires an id (e.g. p03-05)`);
+        if (!v) usageError(`--scenario requires an id (e.g. p03-05)`);
         flags.scenario = v;
         break;
       }
       default:
-        bail(`unknown flag: ${a}`);
+        usageError(`unknown flag: ${a}`);
     }
   }
   return flags;
@@ -554,7 +558,7 @@ function printHelp(): void {
   console.log("  tsx scripts/uat-runner.ts --scenario p03-05");
   console.log("  tsx scripts/uat-runner.ts --no-color");
   console.log("");
-  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed.");
+  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed or usage error.");
   console.log("");
   console.log("Scenarios:");
   for (const s of SCENARIOS) {
@@ -576,7 +580,7 @@ async function main(): Promise<void> {
   let toRun = SCENARIOS;
   if (flags.scenario) {
     toRun = SCENARIOS.filter((s) => s.id === flags.scenario);
-    if (toRun.length === 0) bail(`unknown scenario id: ${flags.scenario}`);
+    if (toRun.length === 0) usageError(`unknown scenario id: ${flags.scenario}`);
   } else if (flags.phase !== "all") {
     toRun = SCENARIOS.filter((s) => s.phase === flags.phase);
   }
