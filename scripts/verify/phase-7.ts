@@ -365,10 +365,10 @@ function group4EndToEnd(
     parseInt(sshCapture(ip, user, key, freshnessCmd).trim(), 10) || 0;
   assert(
     freshnessAfter >= runStartEpoch,
-    `(SC#4b) target mirror ${source}/${owner}/${repo} freshness did not advance ` +
+    `(SC#4b) target mirror ${source}/${owner}/${repo} freshness advanced ` +
       `during this cron run (mirror mtime=${freshnessAfter}, run-start=${runStartEpoch}, ` +
-      `before-run mirror mtime=${freshnessBefore}) — github-backup.sh likely aborted ` +
-      `before reaching the target; re-run`
+      `before-run mirror mtime=${freshnessBefore}); an older mtime means ` +
+      `github-backup.sh stopped before the target`
   );
 
   // 4e. >= 1 BACKUP_REPO_RESULT action=clone|update line in the new tail
