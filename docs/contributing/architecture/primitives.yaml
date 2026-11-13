@@ -237,6 +237,10 @@ primitives:
       - scripts/lib/listener-admits-repo.ts
       - scripts/lib/result-line.ts
       - scripts/lib/repo-full-name.ts
+      - scripts/lib/repo-list-command.ts
+      - scripts/lib/mirror-size.ts
+      - scripts/lib/uat-stale-log.ts
+      - scripts/lib/uat-source-rows.ts
     docs:
       - docs/DECISIONS.md
 
