@@ -18,7 +18,11 @@
 #
 # Exit codes:
 #   0 — all repos backed up successfully (or nothing to back up)
-#   1 — one or more repos failed
+#   1 — one or more repos failed, or the run stopped before the end
+#   75 — REQUIRE_LOCK=1 and the wait for the global lock timed out
+#   129, 130, 143 — SIGHUP, SIGINT or SIGTERM stopped the run
+# A run that stops before the end writes its exit code into last-run.json
+# (D-14), except for the exits that come before the global lock is held.
 
 set -euo pipefail
 
@@ -66,6 +70,60 @@ ENV_FILE="${BACKUP_DIR}/backup.env"
 STATE_DIR="${STATE_DIR:-/var/lib/github-backup}"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REPOS_JSON_ROWS=()
+
+# ── Atomic last-run.json writer (Phase 2 D-03, D-14) ───────────────────────
+# Locked schema; repos[] entries carry `source` and the file carries
+# `stopped_early` (additive — the Phase 2 reader treats unknown fields
+# permissively).
+LAST_RUN_WRITTEN=0
+write_last_run() {
+  local exit_code="$1" stopped_early="$2" finished_at repos_json tmp_file
+  finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [[ "${#REPOS_JSON_ROWS[@]}" -gt 0 ]]; then
+    repos_json="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '.')"
+  else
+    repos_json="[]"
+  fi
+  mkdir -p "${STATE_DIR}"
+  tmp_file="${STATE_DIR}/last-run.json.tmp"
+  jq -n \
+    --arg started "${STARTED_AT}" \
+    --arg finished "${finished_at}" \
+    --argjson exit "${exit_code}" \
+    --argjson total "${TOTAL}" \
+    --argjson ok "${SUCCESS}" \
+    --argjson failed "${FAIL}" \
+    --argjson repos "${repos_json}" \
+    --argjson stopped_early "${stopped_early}" \
+    '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos, stopped_early:$stopped_early}' \
+    > "${tmp_file}"
+  mv -f "${tmp_file}" "${STATE_DIR}/last-run.json"
+  chmod 640 "${STATE_DIR}/last-run.json"
+  LAST_RUN_WRITTEN=1
+}
+
+# D-14: a run that stops before the end records its exit code, so the status
+# command reports the stop. The trap starts after the global lock: a run that
+# leaves because another run holds the lock writes nothing. The run adds the
+# counts of a source to TOTAL, SUCCESS and FAIL only after the last repo of
+# that source, so the trap counts the rows that the run has.
+on_exit() {
+  local rc=$?
+  set +e
+  if [[ "${rc}" -ne 0 && "${LAST_RUN_WRITTEN}" -eq 0 ]]; then
+    TOTAL="${#REPOS_JSON_ROWS[@]}"
+    FAIL="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '[.[] | select(.action == "fail")] | length')"
+    SUCCESS=$(( TOTAL - FAIL ))
+    write_last_run "${rc}" true \
+      || echo "ERROR: could not write ${STATE_DIR}/last-run.json after exit ${rc}" >&2
+  fi
+}
+trap on_exit EXIT
+# bash runs no EXIT trap when a signal ends it. These traps turn the signal
+# into an exit, after the command that runs at that moment returns.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ── Load configuration ─────────────────────────────────────────────────────
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -332,32 +390,8 @@ log "═════════════════════════
 # plus 1 for each source that record_source_failure counts.
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
 
-# ── Atomic last-run.json writer (Phase 2 D-03) ─────────────────────────────
-# Locked schema preserved; repos[] entries now carry `source` (Phase 6
-# additive — Phase 2 reader treats unknown fields permissively).
-FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [[ "${FAIL}" -gt 0 ]]; then EXIT_CODE=1; else EXIT_CODE=0; fi
-
-if [[ "${#REPOS_JSON_ROWS[@]}" -gt 0 ]]; then
-  REPOS_JSON="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '.')"
-else
-  REPOS_JSON="[]"
-fi
-
-mkdir -p "${STATE_DIR}"
-TMP_FILE="${STATE_DIR}/last-run.json.tmp"
-jq -n \
-  --arg started "${STARTED_AT}" \
-  --arg finished "${FINISHED_AT}" \
-  --argjson exit "${EXIT_CODE}" \
-  --argjson total "${TOTAL}" \
-  --argjson ok "${SUCCESS}" \
-  --argjson failed "${FAIL}" \
-  --argjson repos "${REPOS_JSON}" \
-  '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos}' \
-  > "${TMP_FILE}"
-mv -f "${TMP_FILE}" "${STATE_DIR}/last-run.json"
-chmod 640 "${STATE_DIR}/last-run.json"
+write_last_run "${EXIT_CODE}" false
 log "Wrote ${STATE_DIR}/last-run.json (exit=${EXIT_CODE})"
 
 if [[ "${FAIL}" -gt 0 ]]; then
