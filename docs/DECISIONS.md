@@ -78,6 +78,7 @@ Source comments across `scripts/` and `droplet/` cite short identifiers — `D-0
 | `D-24` | Existing droplets pick up the new firewall rules by re-running `npm run create-droplet`; no separate migration command. | `scripts/create-droplet.ts` |
 | `D-25` | `scripts/verify/phase-3.ts` follows the Phase 1 verify template (TS/`tsx`, fail-fast `assert`); `config.json` `webhookTestRepo` is consumed only by this script. | `scripts/lib/config.ts` |
 | `D-26` | `verify:phase-3` runs seven ordered assertion groups: pre-conditions, source-resolution 404, bad-signature 401, end-to-end push, idempotent re-send, listener-restart survival, multi-source routing. | `scripts/verify/phase-3.ts` |
+| `D-27` | The cron run calls `sync-one-repo.sh` with `LOCK_WAIT_SECONDS_REPO` (default 600), so it waits for a webhook sync that holds the per-repo lock and then does its own sync. The row in `last-run.json` takes its action from the `BACKUP_REPO_RESULT` line of the helper. A lock timeout (exit 75), another non-zero exit, or an exit 0 with no result line is a `fail` row. Issue #42. | `droplet/github-backup.sh` |
 
 ### Phase 04 — Restore (v1.0)
 
