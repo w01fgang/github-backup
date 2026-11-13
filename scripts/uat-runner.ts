@@ -356,7 +356,7 @@ const SCENARIOS: Scenario[] = [
         label: "branches + tags in restored clone (from p04-01)",
         cmd:
           "set -euo pipefail; " +
-          "if [ ! -f /tmp/uat-p04-01.log ]; then echo \"p04-01 did not run (no /tmp/uat-p04-01.log)\" >&2; exit 1; fi; " +
+          "if [ ! -f /tmp/uat-p04-01.log ]; then echo \"p04-01 wrote no log: it did not run, or it failed before tee (no /tmp/uat-p04-01.log)\" >&2; exit 1; fi; " +
           "DEST=$(grep -m1 -E '^P04_01_DEST=' /tmp/uat-p04-01.log | sed 's/^P04_01_DEST=//' || true); " +
           // Older p04-01 logs may only carry RESTORE_LOCAL_MIRROR=; fall back to its path.
           "if [ -z \"$DEST\" ] || [ ! -d \"$DEST/.git\" ]; then DEST=$(grep -m1 -E '^RESTORE_LOCAL_MIRROR=' /tmp/uat-p04-01.log | sed 's/^RESTORE_LOCAL_MIRROR=//' || true); fi; " +
@@ -609,6 +609,17 @@ async function main(): Promise<void> {
       droplet ? droplet.ip : "(none)"
     } — runtime ${runtimeCommit}`,
   );
+
+  // p04-02 reads the log that p04-01 writes. When this run includes p04-01,
+  // remove the old log first, so p04-02 reads only this run's p04-01 result.
+  // A run of p04-02 alone reads the log of the last p04-01 run.
+  if (toRun.some((s) => s.id === "p04-01")) {
+    try {
+      fs.rmSync("/tmp/uat-p04-01.log", { force: true });
+    } catch (e) {
+      console.log(`⚠  cannot remove /tmp/uat-p04-01.log: ${(e as Error).message}`);
+    }
+  }
 
   // Execute. Survey mode — DO NOT bail-fast. Iterate all, collect, exit at end.
   const results: ScenarioResult[] = [];
