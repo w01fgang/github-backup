@@ -3,6 +3,7 @@ export const REMOTE_LOG = "/var/log/github-backup.log";
 const ereLiteral = (s: string): string => s.replace(/\./g, "\\.");
 
 export function resultLineCommand(
+  source: string,
   owner: string,
   repo: string,
   offset: number,
@@ -10,6 +11,6 @@ export function resultLineCommand(
 ): string {
   return (
     `tail -c +${offset + 1} ${logPath} | ` +
-    `grep -E '^\\[.*\\] BACKUP_REPO_RESULT source=${ereLiteral(owner)} owner=${ereLiteral(owner)} repo=${ereLiteral(repo)} action=(clone|update|fail)' | tail -1`
+    `grep -E '^\\[.*\\] BACKUP_REPO_RESULT source=${ereLiteral(source)} owner=${ereLiteral(owner)} repo=${ereLiteral(repo)} action=(clone|update|fail)' | tail -1`
   );
 }

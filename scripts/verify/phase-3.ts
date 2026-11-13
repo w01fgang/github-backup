@@ -277,6 +277,7 @@ async function main(): Promise<void> {
       `gh api gives the GitHub full_name of ${cfg.webhookTestRepo} (got ${JSON.stringify(fullName || lookupError)})`
     );
     const { owner, repo } = canonical!;
+    const source = cfg.sources.find((s) => s.name.toLowerCase() === owner.toLowerCase())!.name;
     const logSize = sshCapture(cfg, droplet, logSizeCommand(REMOTE_LOG)).trim();
     assert(/^\d+$/.test(logSize), `log size before the push reads as a number (got ${JSON.stringify(logSize)})`);
     const logOffset = parseInt(logSize, 10);
@@ -291,7 +292,7 @@ async function main(): Promise<void> {
     });
     assert(r.status === 202, `Signed push returns 202 (got ${r.status})`);
 
-    const grepCmd = resultLineCommand(owner, repo, logOffset);
+    const grepCmd = resultLineCommand(source, owner, repo, logOffset);
     let line = "";
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
