@@ -107,7 +107,7 @@ source "${BACKUP_DIR}/lib/filter-repos.sh"
 # shellcheck source=lib/resolve-repo-endpoint.sh
 source "${BACKUP_DIR}/lib/resolve-repo-endpoint.sh"
 
-# Source-name → env slot helper. MUST match bootstrap-droplet.ts envSlot()
+# Source-name → env slot helper. MUST match scripts/lib/config.ts envSlot()
 # byte-for-byte: uppercase, then replace every non-alphanumeric char with `_`.
 # NO trailing-underscore strip (plan 01's envSlot doesn't do it either) — keeps
 # both sides trivially equivalent for any input. The `tr -c '...\n'` complement
@@ -205,7 +205,7 @@ for SOURCE in "${SOURCES[@]}"; do
   log "  Source: ${SOURCE}"
   log "──────────────────────────────────────────"
 
-  # Per-source env var lookup (slot matches bootstrap-droplet.ts envSlot)
+  # Per-source env var lookup (slot matches scripts/lib/config.ts envSlot)
   S="$(slot "${SOURCE}")"
   ALLOW_VAR="GITHUB_SOURCE_ALLOW_${S}"
   DENY_VAR="GITHUB_SOURCE_DENY_${S}"

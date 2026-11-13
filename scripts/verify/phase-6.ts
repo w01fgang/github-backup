@@ -22,6 +22,7 @@
 
 import { spawnSync } from "child_process";
 import {
+  envSlot,
   loadConfig,
   loadDropletInfo,
   type Config,
@@ -60,15 +61,6 @@ function info(msg: string): void {
 
 function softSkip(msg: string): void {
   console.log(`SKIP: ${msg}`);
-}
-
-/**
- * Slot algorithm — MUST match bash slot() in droplet/github-backup.sh and
- * envSlot() in scripts/bootstrap-droplet.ts byte-for-byte. Group 5 asserts
- * cross-language equality on every configured source name.
- */
-function envSlot(name: string): string {
-  return name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
 /** Run a remote command via SSH and return trimmed stdout. */

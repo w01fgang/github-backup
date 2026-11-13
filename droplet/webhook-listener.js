@@ -156,7 +156,7 @@ const FILTER_LIB = path.join(BACKUP_DIR, "lib", "filter-repos.sh");
 
 /**
  * Env-var slot for a source name. MUST match github-backup.sh's bash `slot()`
- * and bootstrap-droplet.ts's `envSlot()` byte-for-byte: uppercase, then every
+ * and scripts/lib/config.ts's `envSlot()` byte-for-byte: uppercase, then every
  * non-alphanumeric char becomes `_`.
  */
 function envSlot(name) {

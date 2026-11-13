@@ -2,7 +2,7 @@
  * tests/env-slot.test.ts
  *
  * The source-name → env-var slot algorithm exists in three places:
- *   - scripts/bootstrap-droplet.ts   `envSlot()`   (writes backup.env)
+ *   - scripts/lib/config.ts           `envSlot()`   (writes backup.env)
  *   - droplet/github-backup.sh       `slot()`      (cron path reads backup.env)
  *   - droplet/webhook-listener.js    `envSlot()`   (webhook path reads backup.env)
  *
@@ -21,7 +21,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { envSlot } from "../scripts/bootstrap-droplet";
+import { envSlot } from "../scripts/lib/config";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const BACKUP_SH = path.join(REPO_ROOT, "droplet", "github-backup.sh");
