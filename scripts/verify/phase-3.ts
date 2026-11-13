@@ -31,7 +31,8 @@ import {
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
 import { listenerAdmitsRepo } from "../lib/listener-admits-repo";
-import { logSizeCommand, resultLineCommand } from "../lib/result-line";
+import { REMOTE_LOG, resultLineCommand } from "../lib/result-line";
+import { logSizeCommand } from "../lib/log-window";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -258,7 +259,7 @@ async function main(): Promise<void> {
       cfg.sources.some((s) => s.name === owner),
       `cfg.webhookTestRepo owner "${owner}" matches a configured source name (Phase 6 multi-source: webhookTestRepo owner must be one of ${JSON.stringify(cfg.sources.map((s) => s.name))})`
     );
-    const logSize = sshCapture(cfg, droplet, logSizeCommand()).trim();
+    const logSize = sshCapture(cfg, droplet, logSizeCommand(REMOTE_LOG)).trim();
     assert(/^\d+$/.test(logSize), `log size before the push reads as a number (got ${JSON.stringify(logSize)})`);
     const logOffset = parseInt(logSize, 10);
     const body = syntheticPushPayload(owner, repo);

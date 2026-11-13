@@ -1,9 +1,5 @@
 export const REMOTE_LOG = "/var/log/github-backup.log";
 
-export function logSizeCommand(logPath: string = REMOTE_LOG): string {
-  return `wc -c < ${logPath} 2>/dev/null || echo 0`;
-}
-
 const ereLiteral = (s: string): string => s.replace(/\./g, "\\.");
 
 export function resultLineCommand(
