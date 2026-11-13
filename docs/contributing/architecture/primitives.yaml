@@ -236,6 +236,7 @@ primitives:
       - scripts/lib/log-window.ts
       - scripts/lib/listener-admits-repo.ts
       - scripts/lib/result-line.ts
+      - scripts/lib/uat-stale-log.ts
       - scripts/lib/uat-source-rows.ts
     docs:
       - docs/DECISIONS.md
