@@ -149,10 +149,10 @@ const CRON_SAFE_RE = /^[A-Za-z0-9@*,/#? \t-]+$/;
  */
 const RESTORE_TEST_REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
-export function loadConfig(): Config {
+export function loadConfig(fail: (msg: string) => never = bail): Config {
   const p = path.resolve(process.cwd(), "config.json");
   if (!fs.existsSync(p)) {
-    bail(
+    fail(
       "config.json not found.\n" +
         "    Copy config.example.json → config.json and fill in your values."
     );
@@ -161,15 +161,18 @@ export function loadConfig(): Config {
   try {
     cfg = JSON.parse(fs.readFileSync(p, "utf8")) as Config;
   } catch (e) {
-    bail(`config.json is not valid JSON: ${(e as Error).message}`);
+    fail(`config.json is not valid JSON: ${(e as Error).message}`);
+  }
+  if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) {
+    fail(`config.json must hold a JSON object. Got: ${JSON.stringify(cfg)}`);
   }
   for (const k of REQUIRED_FIELDS) {
-    if (!cfg[k]) bail(`config.json is missing required field: "${k}"`);
+    if (!cfg[k]) fail(`config.json is missing required field: "${k}"`);
   }
   for (const k of SHELL_SAFE_FIELDS) {
     const v = cfg[k];
     if (typeof v === "string" && !SHELL_SAFE_RE.test(v)) {
-      bail(
+      fail(
         `config.json field "${k}" contains characters outside ` +
           `[A-Za-z0-9._/~@:-]; refusing to interpolate into ssh commands. ` +
           `Got: ${JSON.stringify(v)}`
@@ -198,7 +201,7 @@ export function loadConfig(): Config {
   } else if (legacy) {
     entries = [legacy]; // single-source back-compat (D-02)
   } else {
-    bail(
+    fail(
       `config.json must set either "githubSources" (array) or ` +
         `"githubUserOrOrg" (legacy single-source string). Both are empty.`
     );
@@ -219,7 +222,7 @@ export function loadConfig(): Config {
       if (f) {
         if (f.allow !== undefined) {
           if (!Array.isArray(f.allow) || f.allow.some((g) => typeof g !== "string")) {
-            bail(
+            fail(
               `config.json: source "${name}" has invalid repos.allow ` +
                 `(must be string[]). Got: ${JSON.stringify(f.allow)}`
             );
@@ -228,7 +231,7 @@ export function loadConfig(): Config {
         }
         if (f.deny !== undefined) {
           if (!Array.isArray(f.deny) || f.deny.some((g) => typeof g !== "string")) {
-            bail(
+            fail(
               `config.json: source "${name}" has invalid repos.deny ` +
                 `(must be string[]). Got: ${JSON.stringify(f.deny)}`
             );
@@ -237,22 +240,22 @@ export function loadConfig(): Config {
         }
       }
     } else {
-      bail(
+      fail(
         `config.json: githubSources entry must be string or {name,repos?}. ` +
           `Got: ${JSON.stringify(e)}`
       );
     }
 
-    if (!name) bail(`config.json: githubSources entry has empty name`);
+    if (!name) fail(`config.json: githubSources entry has empty name`);
     if (!SHELL_SAFE_RE.test(name)) {
-      bail(
+      fail(
         `config.json: source name "${name}" contains characters outside ` +
           `[A-Za-z0-9._/~@:-]; refusing (would be interpolated into shell + env-var names). ` +
           `See D-03/D-08.`
       );
     }
     if (seen.has(name)) {
-      bail(`config.json: duplicate source name "${name}" in githubSources (D-03)`);
+      fail(`config.json: duplicate source name "${name}" in githubSources (D-03)`);
     }
     seen.add(name);
 
@@ -262,12 +265,12 @@ export function loadConfig(): Config {
     for (const list of [allow, deny]) {
       for (const g of list) {
         if (g.length === 0) {
-          bail(
+          fail(
             `config.json: source "${name}" has empty glob in allow/deny list`
           );
         }
         if (/["`$\\\n\r]/.test(g)) {
-          bail(
+          fail(
             `config.json: source "${name}" glob "${g}" contains forbidden ` +
               `characters (quote/backtick/dollar/backslash/newline); refusing.`
           );
@@ -287,7 +290,7 @@ export function loadConfig(): Config {
   // contain spaces, `*`, `,`, `/`, and `-`, so use a cron-shape
   // allow-list rather than the strict shell-safe regex.
   if (!CRON_SAFE_RE.test(cfg.cronSchedule)) {
-    bail(
+    fail(
       `config.json field "cronSchedule" is not a safe cron expression; ` +
         `refusing to interpolate into backup.env. Got: ${JSON.stringify(
           cfg.cronSchedule
@@ -303,7 +306,7 @@ export function loadConfig(): Config {
       typeof cfg.restoreTestRepo !== "string" ||
       !RESTORE_TEST_REPO_RE.test(cfg.restoreTestRepo)
     ) {
-      bail(
+      fail(
         `config.json field "restoreTestRepo" must be "<owner>/<repo>" ` +
           `using [A-Za-z0-9._-]; refusing to interpolate into git clone. ` +
           `Got: ${JSON.stringify(cfg.restoreTestRepo)}`
@@ -317,7 +320,7 @@ export function loadConfig(): Config {
   // all rejected here so the failure is local + actionable.
   const FQDN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
   if (!FQDN_RE.test(cfg.webhookHostname)) {
-    bail(
+    fail(
       `config.json field "webhookHostname" is not a valid FQDN ` +
         `(lowercase letters, digits, dashes; at least one dot; no trailing dot). ` +
         `Got: ${JSON.stringify(cfg.webhookHostname)}`
@@ -331,7 +334,7 @@ export function loadConfig(): Config {
       typeof cfg.webhookTestRepo !== "string" ||
       !RESTORE_TEST_REPO_RE.test(cfg.webhookTestRepo)
     ) {
-      bail(
+      fail(
         `config.json field "webhookTestRepo" must be "<owner>/<repo>" ` +
           `using [A-Za-z0-9._-]. ` +
           `Got: ${JSON.stringify(cfg.webhookTestRepo)}`
