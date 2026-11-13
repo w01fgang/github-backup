@@ -238,8 +238,8 @@ primitives:
     summary: >-
       tests/*.test.ts run with node --test and need no droplet. They cover the
       manifest, the env slot parity between bash and TypeScript, the env file
-      parser, the firewall reconcile, the mirror path finder and the repo list
-      endpoint.
+      parser, the firewall reconcile, the mirror path finder, the repo list
+      endpoint, and the failed-source counts of a backup run with a stub gh.
     code:
       - tests/
 
