@@ -6,6 +6,7 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import {
   logSinceCommand,
+  summariesSinceCommand,
   logSizeCommand,
   parseLogOffset,
 } from "../scripts/lib/log-window";
@@ -56,4 +57,28 @@ test("parseLogOffset maps unreadable output to 0", () => {
   assert.equal(parseLogOffset("  1234\n"), 1234);
   assert.equal(parseLogOffset(""), 0);
   assert.equal(parseLogOffset("garbage"), 0);
+});
+
+test("the summary read returns only the summary lines of a run, so a large run stays under the execSync buffer", () => {
+  const log = path.join(dir, "summaries.log");
+  fs.writeFileSync(log, "[2026-01-01 00:00:00] BACKUP_SUMMARY upstream=9 mirrored=9 failed=0\n");
+  const offset = parseLogOffset(bash(logSizeCommand(log)));
+  const first = "[2026-01-02 01:00:00]   BACKUP_SOURCE_SUMMARY source=first upstream=1 mirrored=1 failed=0\n";
+  const last = "[2026-01-02 01:09:00] BACKUP_SUMMARY upstream=1 mirrored=1 failed=0\n";
+  const noise = Array.from({ length: 20000 }, (_, i) => `[2026-01-02 01:00:01] remote: Counting objects ${i} BACKUP_SUMMARY-like noise\n`).join("");
+  fs.appendFileSync(log, first + noise + last);
+  assert.equal(bash(summariesSinceCommand(log, offset)), first + last);
+});
+
+test("the summary read prints nothing and succeeds when the run wrote no summary", () => {
+  const log = path.join(dir, "nosummary.log");
+  fs.writeFileSync(log, "[2026-01-02 01:00:00] repo line\n");
+  assert.equal(bash(summariesSinceCommand(log, 0)), "");
+});
+
+test("the summary read returns summary lines from a window that holds a NUL byte", () => {
+  const log = path.join(dir, "binary.log");
+  const summary = "[2026-01-02 01:09:00] BACKUP_SUMMARY upstream=1 mirrored=1 failed=0\n";
+  fs.writeFileSync(log, Buffer.concat([Buffer.from("[2026-01-02 01:00:00] remote: \u0000\xff bytes\n", "latin1"), Buffer.from(summary)]));
+  assert.equal(bash(summariesSinceCommand(log, 0)), summary);
 });

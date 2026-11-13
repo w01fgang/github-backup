@@ -17,6 +17,16 @@ export function logSinceCommand(logPath: string, offset: number): string {
   return `tail -c +$((${offset} + 1)) ${logPath}`;
 }
 
+/**
+ * Prints only the BACKUP_SUMMARY and BACKUP_SOURCE_SUMMARY lines of the log
+ * after the first `offset` bytes. The filter runs on the droplet, so the
+ * output stays small for a run of any size (execSync keeps at most 1 MiB).
+ * No match prints nothing and exits 0.
+ */
+export function summariesSinceCommand(logPath: string, offset: number): string {
+  return `${logSinceCommand(logPath, offset)} | grep -a -E "BACKUP_(SOURCE_)?SUMMARY " || true`;
+}
+
 /** Parses the output of `logSizeCommand`; unreadable output is offset 0. */
 export function parseLogOffset(output: string): number {
   return parseInt(output.trim(), 10) || 0;

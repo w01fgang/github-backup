@@ -33,7 +33,7 @@ import * as path from "path";
 import { bail, loadConfig, loadDropletInfo } from "./lib/config";
 import { runCapture, runVisible, sshFlags, sshRun } from "./lib/ssh";
 import {
-  logSinceCommand,
+  summariesSinceCommand,
   logSizeCommand,
   parseLogOffset,
 } from "./lib/log-window";
@@ -293,7 +293,7 @@ function enforcePassBar(
   // trivially passes.
   const cfgPhase6 = loadConfig();
   const sourceMatches: { source: string; upstream: number; mirrored: number; failed: number }[] = [];
-  const wideTail = sshCapture(ip, user, keyPath, logSinceCommand(REMOTE_LOG, logOffset));
+  const wideTail = sshCapture(ip, user, keyPath, summariesSinceCommand(REMOTE_LOG, logOffset));
   const tsRe = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/;
   for (const line of wideTail.split("\n")) {
     const tsMatch = line.match(tsRe);

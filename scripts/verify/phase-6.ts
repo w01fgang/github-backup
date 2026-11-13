@@ -30,7 +30,7 @@ import {
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
 import {
-  logSinceCommand,
+  summariesSinceCommand,
   logSizeCommand,
   parseLogOffset,
 } from "../lib/log-window";
@@ -248,7 +248,7 @@ function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
     process.exit(1);
   }
 
-  const tail = sshCapture(ip, user, key, logSinceCommand(REMOTE_LOG, logOffset));
+  const tail = sshCapture(ip, user, key, summariesSinceCommand(REMOTE_LOG, logOffset));
 
   // Per-source SUMMARY parsing (post-tStart only).
   // Match all in tail, then filter to those whose log timestamp prefix is >= tStart.
