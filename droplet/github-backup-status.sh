@@ -124,6 +124,7 @@ TOTAL=0
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 REPOS_JSON="[]"
+STOPPED_EARLY=false
 
 DISK_FS=""
 DISK_SIZE_B=0
@@ -148,6 +149,7 @@ load_state() {
     SUCCESS_COUNT=$(jq -r '.success' "$STATE_FILE")
     FAIL_COUNT=$(jq -r '.fail' "$STATE_FILE")
     REPOS_JSON=$(jq -c '.repos' "$STATE_FILE")
+    STOPPED_EARLY=$(jq -r '.stopped_early // false' "$STATE_FILE")
     return 0
   fi
 
@@ -290,6 +292,10 @@ emit_text() {
   printf 'Exit code:         %s\n' "$EXIT_CODE"
   printf 'Repos:             ✓ %s   ✗ %s   total %s\n' "$SUCCESS_COUNT" "$FAIL_COUNT" "$TOTAL"
 
+  if [[ "$STOPPED_EARLY" == "true" ]]; then
+    echo "Run stopped early with exit ${EXIT_CODE} — see ${LOG_FILE}"
+  fi
+
   if (( FAIL_COUNT > 0 )); then
     echo "Failed repos:"
     if [[ "$REPOS_JSON" == "[]" ]]; then
@@ -339,6 +345,7 @@ emit_json() {
     --argjson ok "$SUCCESS_COUNT" \
     --argjson failed "$FAIL_COUNT" \
     --argjson repos "$REPOS_JSON" \
+    --argjson stopped_early "$STOPPED_EARLY" \
     --arg disk_fs "$DISK_FS" \
     --argjson disk_size "$DISK_SIZE_B" \
     --argjson disk_used "$DISK_USED_B" \
@@ -354,7 +361,8 @@ emit_json() {
     '{
       last_run: (if $state_src == "none" then null else {
         source: $state_src, started_at: $started, finished_at: $finished,
-        exit_code: $exit, total: $total, success: $ok, fail: $failed, repos: $repos
+        exit_code: $exit, total: $total, success: $ok, fail: $failed, repos: $repos,
+        stopped_early: $stopped_early
       } end),
       disk: { filesystem: $disk_fs, size_bytes: $disk_size, used_bytes: $disk_used,
               percent_used: $disk_pct, mirror_bytes: $mirror },

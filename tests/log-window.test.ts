@@ -7,6 +7,7 @@ import { execFileSync } from "child_process";
 import {
   logSinceCommand,
   summariesSinceCommand,
+  resultLinesSinceCommand,
   logSizeCommand,
   parseLogOffset,
 } from "../scripts/lib/log-window";
@@ -81,4 +82,20 @@ test("the summary read returns summary lines from a window that holds a NUL byte
   const summary = "[2026-01-02 01:09:00] BACKUP_SUMMARY upstream=1 mirrored=1 failed=0\n";
   fs.writeFileSync(log, Buffer.concat([Buffer.from("[2026-01-02 01:00:00] remote: \u0000\xff bytes\n", "latin1"), Buffer.from(summary)]));
   assert.equal(bash(summariesSinceCommand(log, 0)), summary);
+});
+
+test("the result read returns only the result lines written after the baseline, so an earlier run cannot name a denied repo", () => {
+  const log = path.join(dir, "results.log");
+  const old = "[2026-01-01 00:00:00] BACKUP_REPO_RESULT source=s owner=o repo=old action=update duration_ms=1\n";
+  fs.writeFileSync(log, old);
+  const offset = parseLogOffset(bash(logSizeCommand(log)));
+  const fresh = "[2026-01-02 00:00:00] BACKUP_REPO_RESULT source=s owner=o repo=new action=clone duration_ms=2\n";
+  fs.appendFileSync(log, "[2026-01-02 00:00:00] remote: noise\n" + fresh);
+  assert.equal(bash(resultLinesSinceCommand(log, offset)), fresh);
+});
+
+test("the result read prints nothing and succeeds when the run wrote no result line", () => {
+  const log = path.join(dir, "noresult.log");
+  fs.writeFileSync(log, "[2026-01-02 01:00:00] repo line\n");
+  assert.equal(bash(resultLinesSinceCommand(log, 0)), "");
 });
