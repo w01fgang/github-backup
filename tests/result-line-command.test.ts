@@ -52,17 +52,21 @@ const LINE = (owner: string, repo: string): string =>
   `[2026-01-02 00:00:00] BACKUP_REPO_RESULT source=s owner=${owner} repo=${repo} action=update duration_ms=5`;
 
 test("resultLineNames finds the result line of a denied repo", () => {
-  assert.equal(resultLineNames(LINE("acme", "foo") + "\n", "acme", "foo"), true);
+  assert.equal(resultLineNames(LINE("acme", "foo") + "\n", "s", "acme", "foo"), true);
 });
 
 test("resultLineNames does not match a repo that shares only a name prefix", () => {
-  assert.equal(resultLineNames(LINE("acme", "foo-bar") + "\n", "acme", "foo"), false);
+  assert.equal(resultLineNames(LINE("acme", "foo-bar") + "\n", "s", "acme", "foo"), false);
 });
 
 test("resultLineNames does not match the same repo name under another owner", () => {
-  assert.equal(resultLineNames(LINE("other", "foo") + "\n", "acme", "foo"), false);
+  assert.equal(resultLineNames(LINE("other", "foo") + "\n", "s", "acme", "foo"), false);
 });
 
 test("resultLineNames reports an empty log as having no line", () => {
-  assert.equal(resultLineNames("", "acme", "foo"), false);
+  assert.equal(resultLineNames("", "s", "acme", "foo"), false);
+});
+
+test("resultLineNames does not match a line that another source wrote for the same repo, since that source has its own filter", () => {
+  assert.equal(resultLineNames(LINE("acme", "foo") + "\n", "other-source", "acme", "foo"), false);
 });

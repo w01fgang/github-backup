@@ -255,7 +255,7 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
   );
 
   // Cross-check: filesystem .git count must cover the mirrored count; extra
-  // mirrors of denied, deleted or renamed repos stay on disk (issue #25).
+  // mirrors of denied, deleted or renamed repos stay on disk (D-21).
   const fsCountStr = sshCapture(
     ip,
     user,
