@@ -36,6 +36,7 @@ export interface LastRun {
   success: number;
   fail: number;
   repos: RepoRow[];
+  stopped_early: boolean;
 }
 
 export interface BackupRun {

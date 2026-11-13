@@ -68,12 +68,12 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REPOS_JSON_ROWS=()
 
 # ── Atomic last-run.json writer (Phase 2 D-03, D-14) ───────────────────────
-# Locked schema; repos[] entries carry `source` (Phase 6 additive — the
-# Phase 2 reader treats unknown fields permissively). The counters have
-# defaults because a run that stops early calls this before they are set.
+# Locked schema; repos[] entries carry `source` and the file carries
+# `stopped_early` (additive — the Phase 2 reader treats unknown fields
+# permissively).
 LAST_RUN_WRITTEN=0
 write_last_run() {
-  local exit_code="$1" finished_at repos_json tmp_file
+  local exit_code="$1" stopped_early="$2" finished_at repos_json tmp_file
   finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if [[ "${#REPOS_JSON_ROWS[@]}" -gt 0 ]]; then
     repos_json="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '.')"
@@ -86,11 +86,12 @@ write_last_run() {
     --arg started "${STARTED_AT}" \
     --arg finished "${finished_at}" \
     --argjson exit "${exit_code}" \
-    --argjson total "${TOTAL:-0}" \
-    --argjson ok "${SUCCESS:-0}" \
-    --argjson failed "${FAIL:-0}" \
+    --argjson total "${TOTAL}" \
+    --argjson ok "${SUCCESS}" \
+    --argjson failed "${FAIL}" \
     --argjson repos "${repos_json}" \
-    '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos}' \
+    --argjson stopped_early "${stopped_early}" \
+    '{started_at:$started, finished_at:$finished, exit_code:$exit, total:$total, success:$ok, fail:$failed, repos:$repos, stopped_early:$stopped_early}' \
     > "${tmp_file}"
   mv -f "${tmp_file}" "${STATE_DIR}/last-run.json"
   chmod 640 "${STATE_DIR}/last-run.json"
@@ -99,16 +100,26 @@ write_last_run() {
 
 # D-14: a run that stops before the end records its exit code, so the status
 # command reports the stop. The trap starts after the global lock: a run that
-# leaves because another run holds the lock writes nothing.
+# leaves because another run holds the lock writes nothing. The run adds the
+# counts of a source to TOTAL, SUCCESS and FAIL only after the last repo of
+# that source, so the trap counts the rows that the run has.
 on_exit() {
   local rc=$?
   set +e
   if [[ "${rc}" -ne 0 && "${LAST_RUN_WRITTEN}" -eq 0 ]]; then
-    write_last_run "${rc}" \
+    TOTAL="${#REPOS_JSON_ROWS[@]}"
+    FAIL="$(printf '%s\n' "${REPOS_JSON_ROWS[@]}" | jq -s '[.[] | select(.action == "fail")] | length')"
+    SUCCESS=$(( TOTAL - FAIL ))
+    write_last_run "${rc}" true \
       || echo "ERROR: could not write ${STATE_DIR}/last-run.json after exit ${rc}" >&2
   fi
 }
 trap on_exit EXIT
+# bash runs no EXIT trap when a signal ends it. These traps turn the signal
+# into an exit, after the command that runs at that moment returns.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ── Load configuration ─────────────────────────────────────────────────────
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -376,7 +387,7 @@ log "═════════════════════════
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
 
 if [[ "${FAIL}" -gt 0 ]]; then EXIT_CODE=1; else EXIT_CODE=0; fi
-write_last_run "${EXIT_CODE}"
+write_last_run "${EXIT_CODE}" false
 log "Wrote ${STATE_DIR}/last-run.json (exit=${EXIT_CODE})"
 
 if [[ "${FAIL}" -gt 0 ]]; then
