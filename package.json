@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "prepare": "node -e \"const fs=require('fs'),p=require('path'); const src=p.resolve('scripts/git-hooks/pre-commit'); const dst=p.resolve('.git/hooks/pre-commit'); if (!fs.existsSync('.git') || !fs.existsSync(src)) process.exit(0); fs.copyFileSync(src, dst); fs.chmodSync(dst, 0o755); console.log('✓ installed .git/hooks/pre-commit');\"",
+    "prepare": "node -e \"const fs=require('fs'),p=require('path'),cp=require('child_process'); const src=p.resolve('scripts/git-hooks/pre-commit'); if (!fs.existsSync('.git') || !fs.existsSync(src)) process.exit(0); let common; try { common=cp.execFileSync('git', ['rev-parse', '--git-common-dir'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).replace(/\\n$/, ''); } catch (e) { console.warn('pre-commit hook not installed: git rev-parse failed: ' + e.message); process.exit(0); } const dir=p.resolve(common, 'hooks'); const dst=p.join(dir, 'pre-commit'); fs.mkdirSync(dir, {recursive: true}); fs.copyFileSync(src, dst); fs.chmodSync(dst, 0o755); console.log('✓ installed ' + dst);\"",
     "test": "node --import tsx --test tests/*.test.ts",
     "create-droplet": "tsx scripts/create-droplet.ts",
     "bootstrap-droplet": "tsx scripts/bootstrap-droplet.ts",
