@@ -156,7 +156,7 @@ const SCENARIOS: Scenario[] = [
           // Source the canonical droplet helpers so this gate applies EXACTLY the
           // account-type + allow/deny rules the backup job applies. github-backup.sh
           // mirrors the post-filter KEPT set, so KEPT — not raw upstream — is the
-          // number disk must match (droplet/github-backup.sh:242-255).
+          // number disk must match (the KEPT count in droplet/github-backup.sh).
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
           "source droplet/lib/resolve-repo-endpoint.sh; " +
@@ -171,7 +171,8 @@ const SCENARIOS: Scenario[] = [
           // disk count.
           "while IFS=$'\\x1f' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
-          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
+          "T=$(detect_account_type \"$SLUG\") || { echo \"source $SLUG: account type lookup failed\" >&2; exit 1; }; " +
+          "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$T\")\"; " +
           "set +e; " +
           "LIST=$(gh api --paginate \"$EP\" --jq '.[].full_name' 2>/dev/null); rc=$?; " +
           "set -e; " +

@@ -108,13 +108,30 @@ async function main(): Promise<void> {
 
   for (const src of cfg.sources) {
     const owner = src.name;
+    // detect_account_type contract: HTTP 404 (unknown login) means "User".
+    // Any other error skips the source, because a user endpoint for an org
+    // lists only its public repos.
     let acctType = "User";
     try {
       acctType = gh(`/users/${owner} --jq .type`).trim() || "User";
-    } catch {
-      acctType = "User";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/HTTP 404/.test(msg)) {
+        const last = msg.trim().split("\n").pop();
+        console.log(`   ✗ ${owner}: account type lookup failed (${last}) — skipping source`);
+        failed++;
+        continue;
+      }
     }
-    const endpoint = resolveRepoEndpoint(owner, acctType);
+    let endpoint: string;
+    try {
+      endpoint = resolveRepoEndpoint(owner, acctType);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`   ✗ ${owner}: ${msg} — skipping source`);
+      failed++;
+      continue;
+    }
 
     // Per-source listing must not be fatal: one source that 404s / is invisible
     // to the token / is rate-limited would otherwise throw out of this loop and

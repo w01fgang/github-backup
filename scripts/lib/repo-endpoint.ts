@@ -31,6 +31,8 @@ export const remoteEndpointLib = (backupDir: string): string =>
  *
  * `accountType` comes from `detect_account_type` (or `gh api /users/<slug>`);
  * anything other than `"Organization"` is treated as a user account.
+ * Throws when the helper fails (for example `gh api /user` fails), so a
+ * caller can skip one source and continue with the next.
  */
 export function resolveRepoEndpoint(owner: string, accountType: string): string {
   if (!fs.existsSync(ENDPOINT_LIB)) {
@@ -45,7 +47,7 @@ export function resolveRepoEndpoint(owner: string, accountType: string): string 
     { encoding: "utf8" }
   );
   if (r.error || r.status !== 0) {
-    bail(
+    throw new Error(
       `repo-endpoint resolution failed for source "${owner}": ` +
         `${r.error ? r.error.message : `exit ${r.status}`}.`
     );
