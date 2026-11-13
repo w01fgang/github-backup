@@ -16,9 +16,10 @@
 # Portability: bash 3.2 (macOS /bin/bash runs the UAT runner) — no `${v,,}`.
 
 # resolve_repo_endpoint <github-slug> <account-type>
-# Echoes the endpoint path (query string included). Never fails: an
-# unreachable `gh api /user` falls back to the public-only user endpoint,
-# matching pre-existing behaviour rather than aborting the caller's `set -e`.
+# Echoes the endpoint path (query string included) and returns 0. For a user
+# source, a failed `gh api /user` echoes nothing and returns 1: without the
+# token owner's login, the helper cannot tell the owner's own source, which
+# needs `/user/repos`, from another user's source.
 resolve_repo_endpoint() {
   local slug="$1"
   local account_type="$2"
@@ -29,7 +30,7 @@ resolve_repo_endpoint() {
   fi
 
   local me
-  me=$(gh api /user --jq '.login' 2>/dev/null) || me=""
+  me=$(gh api /user --jq '.login') || return 1
 
   if [ -n "${me}" ] && \
      [ "$(printf '%s' "${me}" | tr '[:upper:]' '[:lower:]')" = \

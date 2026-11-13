@@ -95,9 +95,11 @@ log() {
 }
 
 # ── Source Phase 6 helpers (D-05 + REPOS-01) ─────────────────────────────
-# detect_account_type <slug> → "User" | "Organization" (with default-on-error).
+# detect_account_type <slug> → "User" | "Organization"; non-zero on a gh error
+#   other than HTTP 404.
 # filter_repos <source> <allow_globs> <deny_globs>: stdin → stdout glob filter.
-# resolve_repo_endpoint <slug> <account-type> → the `gh api` repo-list path.
+# resolve_repo_endpoint <slug> <account-type> → the `gh api` repo-list path;
+#   non-zero when `gh api /user` fails for a user source.
 # shellcheck source=lib/detect-account-type.sh
 source "${BACKUP_DIR}/lib/detect-account-type.sh"
 # shellcheck source=lib/filter-repos.sh
@@ -113,8 +115,9 @@ source "${BACKUP_DIR}/lib/resolve-repo-endpoint.sh"
 # of being replaced by `_`).
 slot() { local s; s=$(tr '[:lower:]' '[:upper:]' <<< "$1"); printf '%s\n' "${s}" | tr -c 'A-Z0-9\n' '_'; }
 
-# record_source_failure <source>: counts a source that cannot be listed as
-# one failed unit, so success + fail = total and repos[] has one row per unit.
+# record_source_failure <source>: counts a source whose account type, repo
+# endpoint or repo list lookup fails as one failed unit, so
+# success + fail = total and repos[] has one row per unit.
 record_source_failure() {
   local source="$1"
   log "  BACKUP_SOURCE_SUMMARY source=${source} upstream=1 mirrored=0 failed=1"
@@ -214,9 +217,19 @@ for SOURCE in "${SOURCES[@]}"; do
   # Per-source mirror dir (idempotent — bootstrap.sh also creates it)
   mkdir -p "${BACKUP_DIR}/${SOURCE}"
 
-  # Detect account type via shared helper (D-05). Defaults to "User" on error.
-  ACCOUNT_TYPE=$(detect_account_type "${SOURCE}")
-  API_ENDPOINT="$(resolve_repo_endpoint "${SOURCE}" "${ACCOUNT_TYPE}")"
+  # Detect account type via shared helper (D-05). A gh error other than
+  # HTTP 404 fails the source: a guessed "User" for an organisation lists
+  # its public repos only.
+  ACCOUNT_TYPE=$(detect_account_type "${SOURCE}" 2>>"${LOG_FILE}") || {
+    log "  ERROR: account type lookup failed for ${SOURCE} (exit $?). Skipping source."
+    record_source_failure "${SOURCE}"
+    continue
+  }
+  API_ENDPOINT=$(resolve_repo_endpoint "${SOURCE}" "${ACCOUNT_TYPE}" 2>>"${LOG_FILE}") || {
+    log "  ERROR: repo endpoint lookup failed for ${SOURCE} (exit $?). Skipping source."
+    record_source_failure "${SOURCE}"
+    continue
+  }
   if [[ "${ACCOUNT_TYPE}" == "Organization" ]]; then
     log "  Account type: Organisation"
   else
@@ -316,7 +329,7 @@ log "═════════════════════════
 
 # Phase 1 BACKUP_SUMMARY shape preserved EXACTLY (no new tokens, parser-stable).
 # Numbers are post-filter: TOTAL = sum of per-source KEPT (operator intent),
-# plus 1 for each source whose repo list failed.
+# plus 1 for each source that record_source_failure counts.
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
 
 # ── Atomic last-run.json writer (Phase 2 D-03) ─────────────────────────────
