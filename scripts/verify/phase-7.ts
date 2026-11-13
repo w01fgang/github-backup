@@ -328,14 +328,15 @@ function group4EndToEnd(
     ) || 0;
   info(`log size before: ${sizeBefore} bytes`);
 
-  // 4b. run cron path — github-backup.sh is the orchestrator. `date +%s`
+  // 4b. run cron path — github-backup.sh is the orchestrator. NR-01:
+  // REQUIRE_LOCK=1 makes it wait for a cron run that holds the lock. `date +%s`
   // runs first in the same ssh round-trip so the run-start epoch is measured
   // on the droplet's clock, matching the freshness timestamps below.
   // Accept exit 0 (all repos OK) or 1 (≥1 repo failed). Both mean "ran
   // end-to-end"; D-08's contract is the mirror-dir + freshness + RESULT_TAG +
   // clean-log checks below, NOT all-repos-clean (which is out of v1.1 scope —
   // operator's source list may have unrelated breakage).
-  const runCmd = `date +%s; ${REMOTE_BACKUP_SH} >/dev/null 2>&1; echo exit=$?`;
+  const runCmd = `date +%s; REQUIRE_LOCK=1 ${REMOTE_BACKUP_SH} >/dev/null 2>&1; echo exit=$?`;
   const runOut = sshCapture(ip, user, key, runCmd);
   const runStartEpoch = parseInt(runOut.split(/\r?\n/)[0], 10) || 0;
   const exitMatch = runOut.match(/exit=(\d+)/);

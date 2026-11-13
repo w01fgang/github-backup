@@ -312,16 +312,16 @@ emit_text() {
     jq -r '.[] | (if .action == "fail" then "  ✗ " else "  ✓ " end) + .action + " " + .name' <<<"$REPOS_JSON"
     if [[ -d "$BACKUP_DIR" ]]; then
       local mirror_count
-      mirror_count=$(find "$BACKUP_DIR" -maxdepth 1 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ')
+      mirror_count=$(find "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ')
       if (( mirror_count > 0 )); then
         echo
         echo "Per-mirror disk usage:"
         local d
-        for d in "$BACKUP_DIR"/*.git; do
+        for d in "$BACKUP_DIR"/*/*.git; do
           [[ -d "$d" ]] || continue
           local sz
           sz=$(du -sh "$d" 2>/dev/null | awk '{print $1}')
-          printf '  %s  %s\n' "$sz" "$(basename "$d")"
+          printf '  %s  %s\n' "$sz" "${d#"$BACKUP_DIR"/}"
         done
       fi
     fi
