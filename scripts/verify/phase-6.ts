@@ -29,6 +29,11 @@ import {
   type NormalizedSource,
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import {
+  summariesSinceCommand,
+  logSizeCommand,
+  parseLogOffset,
+} from "../lib/log-window";
 
 const REMOTE_DIR = "/opt/github-backups";
 const REMOTE_LOG = "/var/log/github-backup.log";
@@ -223,6 +228,9 @@ function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
   console.log(
     `   Triggering ${REMOTE_DIR}/github-backup.sh on droplet (synchronous, REQUIRE_LOCK=1)…`
   );
+  const logOffset = parseLogOffset(
+    sshCapture(ip, user, key, logSizeCommand(REMOTE_LOG))
+  );
   const tStart = sshCapture(
     ip,
     user,
@@ -240,14 +248,7 @@ function group3SummaryContract(cfg: Config, dropInfo: DropletInfo): void {
     process.exit(1);
   }
 
-  // Tail since tStart. 200 lines is enough for a 2-source run; group will
-  // re-fetch a longer tail if there are more sources later.
-  const tail = sshCapture(
-    ip,
-    user,
-    key,
-    `tail -n 500 ${REMOTE_LOG}`
-  );
+  const tail = sshCapture(ip, user, key, summariesSinceCommand(REMOTE_LOG, logOffset));
 
   // Per-source SUMMARY parsing (post-tStart only).
   // Match all in tail, then filter to those whose log timestamp prefix is >= tStart.
