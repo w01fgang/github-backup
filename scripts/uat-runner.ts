@@ -32,7 +32,7 @@ import {
   type Config,
   type DropletInfo,
 } from "./lib/config";
-import { removeStaleP0401Log } from "./lib/uat-stale-log";
+import { P04_01_LOG, removeStaleP0401Log } from "./lib/uat-stale-log";
 
 function usageError(msg: string): never {
   console.error(`\n❌  ${msg}\n`);
@@ -340,14 +340,14 @@ const SCENARIOS: Scenario[] = [
           "OWNER=${BASE%%_*}; " +
           "REPO=${BASE#*_}; " +
           "DEST=$(mktemp -d)/restore-smoke; " +
-          "npm run --silent restore -- \"$OWNER/$REPO\" \"$DEST\" | tee /tmp/uat-p04-01.log; " +
+          "npm run --silent restore -- \"$OWNER/$REPO\" \"$DEST\" | tee " + P04_01_LOG + "; " +
           // restore.ts prints RESTORE_LOCAL_MIRROR=<path> as the literal first
           // stdout line on success; expectStdout below anchors on the start of
           // the captured stream, so a handshake buried on a later line fails.
           "test -d \"$DEST/.git\"; " +
           // Persist the working-clone dir into the log so p04-02 (separate
           // process) can pick it up; the bare RESTORE_LOCAL_MIRROR has no .git.
-          "echo \"P04_01_DEST=$DEST\" >> /tmp/uat-p04-01.log",
+          "echo \"P04_01_DEST=$DEST\" >> " + P04_01_LOG,
         expectStdout: /^RESTORE_LOCAL_MIRROR=\/.+/,
         timeoutSec: 300,
       },
@@ -363,10 +363,10 @@ const SCENARIOS: Scenario[] = [
         label: "branches + tags in restored clone (from p04-01)",
         cmd:
           "set -euo pipefail; " +
-          "if [ ! -f /tmp/uat-p04-01.log ]; then echo \"p04-01 wrote no log: it did not run, or it failed before tee (no /tmp/uat-p04-01.log)\" >&2; exit 1; fi; " +
-          "DEST=$(grep -m1 -E '^P04_01_DEST=' /tmp/uat-p04-01.log | sed 's/^P04_01_DEST=//' || true); " +
+          "if [ ! -f " + P04_01_LOG + " ]; then echo \"p04-01 wrote no log: it did not run, or it failed before tee (no " + P04_01_LOG + ")\" >&2; exit 1; fi; " +
+          "DEST=$(grep -m1 -E '^P04_01_DEST=' " + P04_01_LOG + " | sed 's/^P04_01_DEST=//' || true); " +
           // Older p04-01 logs may only carry RESTORE_LOCAL_MIRROR=; fall back to its path.
-          "if [ -z \"$DEST\" ] || [ ! -d \"$DEST/.git\" ]; then DEST=$(grep -m1 -E '^RESTORE_LOCAL_MIRROR=' /tmp/uat-p04-01.log | sed 's/^RESTORE_LOCAL_MIRROR=//' || true); fi; " +
+          "if [ -z \"$DEST\" ] || [ ! -d \"$DEST/.git\" ]; then DEST=$(grep -m1 -E '^RESTORE_LOCAL_MIRROR=' " + P04_01_LOG + " | sed 's/^RESTORE_LOCAL_MIRROR=//' || true); fi; " +
           "if [ -z \"$DEST\" ] || [ ! -d \"$DEST/.git\" ]; then echo \"no usable restore dir from p04-01\" >&2; exit 1; fi; " +
           "BRANCHES=$(git -C \"$DEST\" branch -a | wc -l | tr -d ' '); " +
           "TAGS=$(git -C \"$DEST\" tag | wc -l | tr -d ' '); " +
