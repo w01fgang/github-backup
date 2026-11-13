@@ -117,7 +117,9 @@ primitives:
       droplet/sync-one-repo.sh takes the per-repo flock on fd 8, then runs
       git clone --mirror or git remote update --prune into
       BACKUP_DIR/source/owner_repo.git, and logs one BACKUP_REPO_RESULT line.
-      When another sync holds the lock, it exits 0 with no result line.
+      When another sync holds the lock, it exits 0 with no result line, unless
+      LOCK_WAIT_SECONDS_REPO is set: then it waits that many seconds. The webhook
+      listener sets it to 3600.
     code:
       - droplet/sync-one-repo.sh
     docs:
@@ -230,6 +232,7 @@ primitives:
       - scripts/smoke-test.ts
       - scripts/uat-runner.ts
       - scripts/lib/log-window.ts
+      - scripts/lib/result-line.ts
     docs:
       - docs/DECISIONS.md
 
@@ -239,8 +242,8 @@ primitives:
     summary: >-
       tests/*.test.ts run with node --test and need no droplet. They cover the
       manifest, the env slot parity between bash and TypeScript, the env file
-      parser, the firewall reconcile, the mirror path finder and the repo list
-      endpoint.
+      parser, the firewall reconcile, the mirror path finder, the repo list
+      endpoint, and the failed-source counts of a backup run with a stub gh.
     code:
       - tests/
 

@@ -10,7 +10,7 @@
  *
  * Survey-style runner: DOES NOT bail-fast. Iterates ALL filtered scenarios,
  * collects results, then exits at the end (0 = all scripted passed, 1 = any
- * scripted failed, 2 = runner crashed).
+ * scripted failed, 2 = runner crashed or usage error).
  *
  * Usage:
  *   npm run uat                                   # all 22
@@ -29,10 +29,14 @@ import * as path from "path";
 import {
   loadConfig,
   loadDropletInfo,
-  bail,
   type Config,
   type DropletInfo,
 } from "./lib/config";
+
+function usageError(msg: string): never {
+  console.error(`\n❌  ${msg}\n`);
+  process.exit(2);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -156,15 +160,16 @@ const SCENARIOS: Scenario[] = [
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
           "source droplet/lib/resolve-repo-endpoint.sh; " +
-          // One TSV row per source: <name>\t<allow globs>\t<deny globs>. Falls back
+          // One row per source: <name>US<allow globs>US<deny globs>, US = 0x1f
+          // (non-whitespace, so an empty allow field is kept by `read`). Falls back
           // to the deprecated single-source key only when githubSources is absent.
-          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\t')); }\"); " +
+          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\x1f')); }\"); " +
           "if [ -z \"$ROWS\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
           "TOTAL_UP=0; TOTAL_KEPT=0; TOTAL_DISK=0; " +
           // Compare EACH source's own kept count to its own mirror dir so an
           // unmirrored source #2 fails loudly instead of passing under source #1's
           // disk count.
-          "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
+          "while IFS=$'\\x1f' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
           "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
           "set +e; " +
@@ -356,7 +361,7 @@ const SCENARIOS: Scenario[] = [
         label: "branches + tags in restored clone (from p04-01)",
         cmd:
           "set -euo pipefail; " +
-          "if [ ! -f /tmp/uat-p04-01.log ]; then echo \"p04-01 did not run (no /tmp/uat-p04-01.log)\" >&2; exit 1; fi; " +
+          "if [ ! -f /tmp/uat-p04-01.log ]; then echo \"p04-01 wrote no log: it did not run, or it failed before tee (no /tmp/uat-p04-01.log)\" >&2; exit 1; fi; " +
           "DEST=$(grep -m1 -E '^P04_01_DEST=' /tmp/uat-p04-01.log | sed 's/^P04_01_DEST=//' || true); " +
           // Older p04-01 logs may only carry RESTORE_LOCAL_MIRROR=; fall back to its path.
           "if [ -z \"$DEST\" ] || [ ! -d \"$DEST/.git\" ]; then DEST=$(grep -m1 -E '^RESTORE_LOCAL_MIRROR=' /tmp/uat-p04-01.log | sed 's/^RESTORE_LOCAL_MIRROR=//' || true); fi; " +
@@ -524,19 +529,19 @@ function parseFlags(args: string[]): ParsedFlags {
       case "--phase": {
         const v = args[++i];
         if (v !== "01" && v !== "03" && v !== "04" && v !== "8-deferred" && v !== "all") {
-          bail(`--phase must be one of 01|03|04|8-deferred|all (got: ${v ?? "<missing>"})`);
+          usageError(`--phase must be one of 01|03|04|8-deferred|all (got: ${v ?? "<missing>"})`);
         }
         flags.phase = v as PhaseTag | "all";
         break;
       }
       case "--scenario": {
         const v = args[++i];
-        if (!v) bail(`--scenario requires an id (e.g. p03-05)`);
+        if (!v) usageError(`--scenario requires an id (e.g. p03-05)`);
         flags.scenario = v;
         break;
       }
       default:
-        bail(`unknown flag: ${a}`);
+        usageError(`unknown flag: ${a}`);
     }
   }
   return flags;
@@ -554,7 +559,7 @@ function printHelp(): void {
   console.log("  tsx scripts/uat-runner.ts --scenario p03-05");
   console.log("  tsx scripts/uat-runner.ts --no-color");
   console.log("");
-  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed.");
+  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed or usage error.");
   console.log("");
   console.log("Scenarios:");
   for (const s of SCENARIOS) {
@@ -576,7 +581,7 @@ async function main(): Promise<void> {
   let toRun = SCENARIOS;
   if (flags.scenario) {
     toRun = SCENARIOS.filter((s) => s.id === flags.scenario);
-    if (toRun.length === 0) bail(`unknown scenario id: ${flags.scenario}`);
+    if (toRun.length === 0) usageError(`unknown scenario id: ${flags.scenario}`);
   } else if (flags.phase !== "all") {
     toRun = SCENARIOS.filter((s) => s.phase === flags.phase);
   }
@@ -609,6 +614,17 @@ async function main(): Promise<void> {
       droplet ? droplet.ip : "(none)"
     } — runtime ${runtimeCommit}`,
   );
+
+  // p04-02 reads the log that p04-01 writes. When this run includes p04-01,
+  // remove the old log first, so p04-02 reads only this run's p04-01 result.
+  // A run of p04-02 alone reads the log of the last p04-01 run.
+  if (toRun.some((s) => s.id === "p04-01")) {
+    try {
+      fs.rmSync("/tmp/uat-p04-01.log", { force: true });
+    } catch (e) {
+      console.log(`⚠  cannot remove /tmp/uat-p04-01.log: ${(e as Error).message}`);
+    }
+  }
 
   // Execute. Survey mode — DO NOT bail-fast. Iterate all, collect, exit at end.
   const results: ScenarioResult[] = [];

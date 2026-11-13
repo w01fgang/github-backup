@@ -320,7 +320,7 @@ function group3DiskReporting(
     info.ip,
     user,
     keyPath,
-    `du -sb ${REMOTE_BACKUP_DIR} | awk "{print \\$1}"`
+    `du -sbD ${REMOTE_BACKUP_DIR} | awk "{print \\$1}"`
   ).trim();
   const liveMirror = parseInt(duStr, 10);
   assert(Number.isFinite(liveMirror), `live du parsed (${liveMirror})`);
@@ -445,7 +445,7 @@ function group4LocalWrapper(remoteJson: string, remoteSampledAt: number): void {
   // than guessed. Both snapshots sample somewhere inside the bracketed window
   // and each rounds to whole seconds, hence +2. A droplet with a large mirror
   // tree widens that window by minutes all on its own — Group 3's recursive
-  // `du -sb` runs inside it, and the wrapper's snapshot runs another before
+  // `du -sbD` runs inside it, and the wrapper's snapshot runs another before
   // sampling its age — which is why a fixed ceiling would fail healthy runs
   // on exactly the droplets that need verifying most.
   const windowSeconds = Math.ceil((localSampledAt - remoteSampledAt) / 1000) + 2;

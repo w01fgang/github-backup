@@ -29,6 +29,7 @@ import {
   type DropletInfo,
 } from "../lib/config";
 import { sshFlags, runCapture } from "../lib/ssh";
+import { logSizeCommand, resultLineCommand } from "../lib/result-line";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -255,6 +256,9 @@ async function main(): Promise<void> {
       cfg.sources.some((s) => s.name === owner),
       `cfg.webhookTestRepo owner "${owner}" matches a configured source name (Phase 6 multi-source: webhookTestRepo owner must be one of ${JSON.stringify(cfg.sources.map((s) => s.name))})`
     );
+    const logSize = sshCapture(cfg, droplet, logSizeCommand()).trim();
+    assert(/^\d+$/.test(logSize), `log size before the push reads as a number (got ${JSON.stringify(logSize)})`);
+    const logOffset = parseInt(logSize, 10);
     const body = syntheticPushPayload(owner, repo);
     const delivery = makeDelivery();
     const sig = signPayload(body, secret);
@@ -266,10 +270,7 @@ async function main(): Promise<void> {
     });
     assert(r.status === 202, `Signed push returns 202 (got ${r.status})`);
 
-    // Poll the log for a matching BACKUP_REPO_RESULT line.
-    const grepCmd =
-      `grep -E '^\\[.*\\] BACKUP_REPO_RESULT source=${owner} owner=${owner} repo=${repo} action=(clone|update|fail)' ` +
-      `/var/log/github-backup.log | tail -1`;
+    const grepCmd = resultLineCommand(owner, repo, logOffset);
     let line = "";
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
