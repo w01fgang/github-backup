@@ -113,6 +113,16 @@ source "${BACKUP_DIR}/lib/resolve-repo-endpoint.sh"
 # of being replaced by `_`).
 slot() { local s; s=$(tr '[:lower:]' '[:upper:]' <<< "$1"); printf '%s\n' "${s}" | tr -c 'A-Z0-9\n' '_'; }
 
+# record_source_failure <source>: counts a source that cannot be listed as
+# one failed unit, so success + fail = total and repos[] has one row per unit.
+record_source_failure() {
+  local source="$1"
+  log "  BACKUP_SOURCE_SUMMARY source=${source} upstream=1 mirrored=0 failed=1"
+  TOTAL=$(( TOTAL + 1 ))
+  FAIL=$(( FAIL + 1 ))
+  REPOS_JSON_ROWS+=( "$(jq -n --arg source "${source}" --arg name "${source} (repo list)" '{source:$source, name:$name, action:"fail", duration_ms:0}')" )
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────
 log "════════════════════════════════════════════════════════"
 log "GitHub backup started"
@@ -213,16 +223,15 @@ for SOURCE in "${SOURCES[@]}"; do
     log "  Account type: User"
   fi
 
-  # Fetch list. Soft fail: log + count one source-level failure but continue
-  # to the next source so a single bad token scope or rate limit doesn't kill
-  # the whole multi-source run.
+  # Fetch list. Soft fail: the source counts as one failed unit and the run
+  # goes on with the next source, so a single bad token scope or rate limit
+  # doesn't kill the whole multi-source run.
   log "  Fetching repository list…"
   REPO_LIST=$(
     gh api --paginate "${API_ENDPOINT}" --jq '.[].full_name' 2>>"${LOG_FILE}"
   ) || {
     log "  ERROR: gh api failed for ${SOURCE} (exit $?). Skipping source."
-    log "  BACKUP_SOURCE_SUMMARY source=${SOURCE} upstream=0 mirrored=0 failed=1"
-    FAIL=$(( FAIL + 1 ))
+    record_source_failure "${SOURCE}"
     continue
   }
 
@@ -306,7 +315,8 @@ log "Backup finished — success: ${SUCCESS}, failed: ${FAIL}"
 log "════════════════════════════════════════════════════════"
 
 # Phase 1 BACKUP_SUMMARY shape preserved EXACTLY (no new tokens, parser-stable).
-# Numbers are post-filter: TOTAL = sum of per-source KEPT (operator intent).
+# Numbers are post-filter: TOTAL = sum of per-source KEPT (operator intent),
+# plus 1 for each source whose repo list failed.
 log "BACKUP_SUMMARY upstream=${TOTAL} mirrored=${SUCCESS} failed=${FAIL}"
 
 # ── Atomic last-run.json writer (Phase 2 D-03) ─────────────────────────────
