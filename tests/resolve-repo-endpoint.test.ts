@@ -103,3 +103,16 @@ test("the TypeScript wrapper returns the shell helper's answer verbatim", () => 
     "/orgs/some-org/repos?type=all&per_page=100"
   );
 });
+
+test("the TypeScript wrapper throws when gh fails, so register-webhooks can skip one source and continue", () => {
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-stub-"));
+  fs.writeFileSync(path.join(binDir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const savedPath = process.env["PATH"];
+  process.env["PATH"] = `${binDir}:${savedPath ?? ""}`;
+  try {
+    assert.throws(() => resolveRepoEndpoint("w01fgang", "User"), /resolution failed for source "w01fgang"/);
+  } finally {
+    process.env["PATH"] = savedPath;
+    fs.rmSync(binDir, { recursive: true, force: true });
+  }
+});

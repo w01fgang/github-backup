@@ -123,7 +123,15 @@ async function main(): Promise<void> {
         continue;
       }
     }
-    const endpoint = resolveRepoEndpoint(owner, acctType);
+    let endpoint: string;
+    try {
+      endpoint = resolveRepoEndpoint(owner, acctType);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`   ✗ ${owner}: ${msg} — skipping source`);
+      failed++;
+      continue;
+    }
 
     // Per-source listing must not be fatal: one source that 404s / is invisible
     // to the token / is rate-limited would otherwise throw out of this loop and
