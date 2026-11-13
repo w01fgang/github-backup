@@ -18,7 +18,9 @@
  *   1. .droplet.json exists locally (loadDropletInfo bails otherwise).
  *   2. config.json has >= 1 source. For SC#4, at least one allow-matched
  *      repo must be resolvable: chooseTarget() tries
- *        a. cfg.webhookTestRepo (if owner is a configured source + passes filter)
+ *        a. cfg.webhookTestRepo (if owner is a configured source + passes filter).
+ *           `gh api repos/<slug>` on the droplet gives the GitHub casing of the
+ *           slug; the filter and the mirror path use that casing.
  *        b. cfg.restoreTestRepo (same constraints)
  *        c. auto-discovery via `gh api` on first source whose filter admits >= 1 repo
  *      and bails operator-actionably if nothing resolves.
@@ -415,13 +417,36 @@ function chooseTarget(
     if (!SLUG_RE.test(parsed.owner) || !SLUG_RE.test(parsed.repo)) continue;
     const src = cfg.sources.find((s) => s.name === parsed.owner);
     if (!src) continue;
-    if (passesRepoFilter(src, parsed.owner, parsed.repo)) {
-      info(
-        `SC#4 target = ${cand} (from config.${
-          cfg.webhookTestRepo === cand ? "webhookTestRepo" : "restoreTestRepo"
-        })`
-      );
-      return { source: src.name, owner: parsed.owner, repo: parsed.repo };
+    // The cron run names each mirror after GitHub's full_name casing and
+    // filters on it, so resolve that casing before the filter and the path.
+    const field = cfg.webhookTestRepo === cand ? "webhookTestRepo" : "restoreTestRepo";
+    let fullName = "";
+    try {
+      fullName = sshCapture(
+        ip,
+        user,
+        key,
+        `set -a; source ${REMOTE_ENV(cfg)}; set +a; ` +
+          `gh api repos/${parsed.owner}/${parsed.repo} --jq .full_name`
+      ).trim();
+    } catch (e) {
+      info(`config.${field} ${cand}: gh api failed, trying the next candidate (${(e as Error).message.split("\n").slice(2).join(" ").trim()})`);
+      continue;
+    }
+    const canonical = parseRepoSlug(fullName);
+    if (
+      !canonical ||
+      canonical.owner.toLowerCase() !== parsed.owner.toLowerCase() ||
+      canonical.repo.toLowerCase() !== parsed.repo.toLowerCase() ||
+      !SLUG_RE.test(canonical.owner) ||
+      !SLUG_RE.test(canonical.repo)
+    ) {
+      info(`config.${field} ${cand}: GitHub names it "${fullName}", trying the next candidate`);
+      continue;
+    }
+    if (passesRepoFilter(src, canonical.owner, canonical.repo)) {
+      info(`SC#4 target = ${fullName} (from config.${field})`);
+      return { source: src.name, owner: canonical.owner, repo: canonical.repo };
     }
   }
 
