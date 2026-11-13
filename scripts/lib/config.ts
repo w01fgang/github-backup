@@ -163,6 +163,9 @@ export function loadConfig(fail: (msg: string) => never = bail): Config {
   } catch (e) {
     fail(`config.json is not valid JSON: ${(e as Error).message}`);
   }
+  if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) {
+    fail(`config.json must hold a JSON object. Got: ${JSON.stringify(cfg)}`);
+  }
   for (const k of REQUIRED_FIELDS) {
     if (!cfg[k]) fail(`config.json is missing required field: "${k}"`);
   }

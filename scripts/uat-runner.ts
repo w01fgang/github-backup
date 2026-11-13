@@ -10,7 +10,7 @@
  *
  * Survey-style runner: DOES NOT bail-fast. Iterates ALL filtered scenarios,
  * collects results, then exits at the end (0 = all scripted passed, 1 = any
- * scripted failed, 2 = runner crashed or usage error).
+ * scripted failed, 2 = runner crashed, usage error, or missing or invalid config.json).
  *
  * Usage:
  *   npm run uat                                   # all 22
@@ -559,7 +559,7 @@ function printHelp(): void {
   console.log("  tsx scripts/uat-runner.ts --scenario p03-05");
   console.log("  tsx scripts/uat-runner.ts --no-color");
   console.log("");
-  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed or usage error.");
+  console.log("Exit codes: 0 = all scripted passed, 1 = any scripted failed, 2 = runner crashed, usage error, or missing or invalid config.json.");
   console.log("");
   console.log("Scenarios:");
   for (const s of SCENARIOS) {

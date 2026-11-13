@@ -59,3 +59,9 @@ test("exits 2 on a config.json that is not valid JSON, since no scenario ran", (
   assert.equal(r.status, 2);
   assert.match(r.stderr, /not valid JSON/);
 });
+
+test("exits 2 on a config.json that holds null, since no scenario ran", () => {
+  const r = runInTempDir("null");
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /must hold a JSON object/);
+});
