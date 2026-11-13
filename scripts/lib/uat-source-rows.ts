@@ -3,9 +3,9 @@
  *
  * Shell fragments of UAT scenario p01-05 that turn config.json into one row
  * per source: <name>US<allow globs>US<deny globs>, US = 0x1f. US is not
- * whitespace, so `read` keeps an empty allow field in place instead of
- * collapsing it into the deny field. The deprecated single-source key
- * githubUserOrOrg is read only when githubSources is absent.
+ * whitespace, so `read` keeps an empty allow field as an empty field, and the
+ * deny globs stay in the deny field. The deprecated single-source key
+ * githubUserOrOrg is read only when githubSources is absent or empty.
  */
 
 export const SOURCE_ROWS_ASSIGN =
