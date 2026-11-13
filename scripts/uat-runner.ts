@@ -156,15 +156,16 @@ const SCENARIOS: Scenario[] = [
           "source droplet/lib/detect-account-type.sh; " +
           "source droplet/lib/filter-repos.sh; " +
           "source droplet/lib/resolve-repo-endpoint.sh; " +
-          // One TSV row per source: <name>\t<allow globs>\t<deny globs>. Falls back
+          // One row per source: <name>US<allow globs>US<deny globs>, US = 0x1f
+          // (non-whitespace, so an empty allow field is kept by `read`). Falls back
           // to the deprecated single-source key only when githubSources is absent.
-          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\t')); }\"); " +
+          "ROWS=$(node -e \"const c=require('./config.json'); let s=(c.githubSources||[]); if(!s.length && c.githubUserOrOrg) s=[c.githubUserOrOrg]; for (const e of s) { const n = typeof e==='string' ? e : (e && e.name); if(!n) continue; const f=(e && e.repos) || {}; console.log([n, (f.allow||[]).join(' '), (f.deny||[]).join(' ')].join('\\x1f')); }\"); " +
           "if [ -z \"$ROWS\" ]; then echo \"no github source in config.json\" >&2; exit 1; fi; " +
           "TOTAL_UP=0; TOTAL_KEPT=0; TOTAL_DISK=0; " +
           // Compare EACH source's own kept count to its own mirror dir so an
           // unmirrored source #2 fails loudly instead of passing under source #1's
           // disk count.
-          "while IFS=$'\\t' read -r SLUG ALLOW DENY; do " +
+          "while IFS=$'\\x1f' read -r SLUG ALLOW DENY; do " +
           "[ -z \"$SLUG\" ] && continue; " +
           "EP=\"$(resolve_repo_endpoint \"$SLUG\" \"$(detect_account_type \"$SLUG\")\")\"; " +
           "set +e; " +
