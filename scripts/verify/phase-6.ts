@@ -429,7 +429,7 @@ function group4DenyEnforcement(
   }
 
   // The run does not delete a mirror, so a mirror made before the deny glob
-  // existed stays on disk (issue #25). Judge the run instead: the log from
+  // existed stays on disk (issue #25). This group judges the run: the log from
   // the offset recorded before the run must hold no result line of a denied
   // repo. Group 3 runs the backup when it has >= 2 sources; otherwise this
   // group runs it.
@@ -442,8 +442,10 @@ function group4DenyEnforcement(
     resultLinesSinceCommand(REMOTE_LOG, logOffset)
   );
   assert(
-    resultLines.trim().length > 0,
-    `the run wrote BACKUP_REPO_RESULT lines (an empty window would pass every denied repo)`
+    /BACKUP_SUMMARY upstream=\d+/.test(
+      sshCapture(ip, user, key, summariesSinceCommand(REMOTE_LOG, logOffset))
+    ),
+    `the log after the offset holds the BACKUP_SUMMARY line of the run (an empty window would pass every denied repo)`
   );
   for (const r of deniedRepos) {
     const [owner, name] = r.split("/");
