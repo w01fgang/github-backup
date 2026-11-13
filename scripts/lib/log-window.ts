@@ -27,6 +27,14 @@ export function summariesSinceCommand(logPath: string, offset: number): string {
   return `${logSinceCommand(logPath, offset)} | grep -a -E "BACKUP_(SOURCE_)?SUMMARY " || true`;
 }
 
+/**
+ * Prints only the BACKUP_REPO_RESULT lines of the log after the first
+ * `offset` bytes. No match prints nothing and exits 0.
+ */
+export function resultLinesSinceCommand(logPath: string, offset: number): string {
+  return `${logSinceCommand(logPath, offset)} | grep -a -E "BACKUP_REPO_RESULT " || true`;
+}
+
 /** Parses the output of `logSizeCommand`; unreadable output is offset 0. */
 export function parseLogOffset(output: string): number {
   return parseInt(output.trim(), 10) || 0;

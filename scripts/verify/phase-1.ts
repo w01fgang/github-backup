@@ -28,6 +28,7 @@ import {
 } from "../lib/config";
 import { sshFlags, runCapture, runVisible } from "../lib/ssh";
 import { doctlJson, first } from "../lib/doctl";
+import { mirrorCountCovers } from "../lib/mirror-count";
 
 /** BACKUP_SUMMARY contract — emitted by droplet/github-backup.sh (plan 01-03 task 1). */
 const BACKUP_SUMMARY_RE =
@@ -253,7 +254,8 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
     `mirrored === upstream && failed === 0 (upstream=${upstream}, mirrored=${mirrored}, failed=${failed})`
   );
 
-  // Cross-check: filesystem .git count must equal mirrored count.
+  // Cross-check: filesystem .git count must cover the mirrored count; extra
+  // mirrors of denied, deleted or renamed repos stay on disk (D-21).
   const fsCountStr = sshCapture(
     ip,
     user,
@@ -262,8 +264,8 @@ function group3BackupRan(cfg: Config, info: DropletInfo): void {
   );
   const fsCount = parseInt(fsCountStr.trim(), 10);
   assert(
-    fsCount === mirrored,
-    `filesystem .git count === mirrored (fs=${fsCount}, mirrored=${mirrored})`
+    mirrorCountCovers(fsCount, mirrored),
+    `filesystem .git count >= mirrored (fs=${fsCount}, mirrored=${mirrored})`
   );
 }
 
