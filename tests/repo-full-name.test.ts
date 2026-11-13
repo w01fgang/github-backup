@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { canonicalSlug, fullNameCommand } from "../scripts/lib/repo-full-name";
 
-test("the phase-3 push uses the GitHub case of the owner so no second mirror is cloned", () => {
+test("canonicalSlug takes the owner case from the GitHub full_name, which names the mirror", () => {
   assert.deepEqual(canonicalSlug("toprent-app", "locale-editor", "Toprent-app/locale-editor\n"), {
     owner: "Toprent-app",
     repo: "locale-editor",
