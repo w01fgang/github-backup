@@ -344,6 +344,10 @@ function group4EndToEnd(
   const exitMatch = runOut.match(/exit=(\d+)/);
   const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : -1;
   assert(
+    runStartEpoch > 0,
+    `(SC#4b) the droplet run-start epoch reads as a number (got ${JSON.stringify(runOut.split(/\r?\n/)[0])})`
+  );
+  assert(
     exitCode === 0 || exitCode === 1,
     `${REMOTE_BACKUP_SH} ran end-to-end (exit 0 or 1; got ${exitCode})`
   );
@@ -365,10 +369,10 @@ function group4EndToEnd(
     parseInt(sshCapture(ip, user, key, freshnessCmd).trim(), 10) || 0;
   assert(
     freshnessAfter >= runStartEpoch,
-    `(SC#4b) target mirror ${source}/${owner}/${repo} freshness did not advance ` +
+    `(SC#4b) target mirror ${source}/${owner}/${repo} freshness advanced ` +
       `during this cron run (mirror mtime=${freshnessAfter}, run-start=${runStartEpoch}, ` +
-      `before-run mirror mtime=${freshnessBefore}) — github-backup.sh likely aborted ` +
-      `before reaching the target; re-run`
+      `before-run mirror mtime=${freshnessBefore}); an older mtime can mean ` +
+      `that github-backup.sh stopped before the target, so re-run`
   );
 
   // 4e. >= 1 BACKUP_REPO_RESULT action=clone|update line in the new tail
