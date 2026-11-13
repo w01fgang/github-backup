@@ -17,7 +17,7 @@ npm run bootstrap-droplet   ──▶   apt packages, gh CLI, cron job
                                     git remote update --prune (known repos)
 ```
 
-All mirrors are stored as bare repos at `/opt/github-backups/<owner>_<repo>.git`.
+All mirrors are stored as bare repos at `/opt/github-backups/<source>/<owner>_<repo>.git`.
 Any standard `git clone` command that accepts a path works against them over SSH.
 
 ### Deleted branches and tags
@@ -709,7 +709,7 @@ this section stale.
 | `droplet/Caddyfile.template` | Webhook trio: Caddy reverse-proxy template | phase-3 | required |
 | `droplet/github-backup-webhook.service` | Webhook trio: systemd unit | phase-3 | required |
 | `droplet/webhook-listener.js` | Webhook trio: Node listener | phase-3 | required |
-| `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection (cached) | phase-7 | required |
+| `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection | phase-7 | required |
 | `droplet/lib/filter-repos.sh` | Lib: per-source allow/deny glob filter | phase-7 | required |
 | `droplet/lib/resolve-repo-endpoint.sh` | Lib: repo-list endpoint (private repos included) | phase-7 | required |
 
