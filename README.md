@@ -17,7 +17,7 @@ npm run bootstrap-droplet   ──▶   apt packages, gh CLI, cron job
                                     git remote update --prune (known repos)
 ```
 
-All mirrors are stored as bare repos at `/opt/github-backups/<owner>_<repo>.git`.
+All mirrors are stored as bare repos at `/opt/github-backups/<source>/<owner>_<repo>.git`.
 Any standard `git clone` command that accepts a path works against them over SSH.
 
 ### Deleted branches and tags
@@ -294,7 +294,7 @@ ssh -i ~/.ssh/id_rsa root@DROPLET_IP tail -100 /var/log/github-backup.log
 ### List all mirrored repositories
 
 ```bash
-ssh -i ~/.ssh/id_rsa root@DROPLET_IP ls /opt/github-backups/*.git
+ssh -i ~/.ssh/id_rsa root@DROPLET_IP 'ls -d /opt/github-backups/*/*.git'
 ```
 
 ### Clone a mirrored repo for local development
@@ -303,7 +303,7 @@ ssh -i ~/.ssh/id_rsa root@DROPLET_IP ls /opt/github-backups/*.git
 
 ```bash
 # Clone as a normal working copy (checked-out branch):
-git clone root@DROPLET_IP:/opt/github-backups/myorg_myrepo.git ~/my-project
+git clone root@DROPLET_IP:/opt/github-backups/myorg/myorg_myrepo.git ~/my-project
 
 # Restore the original upstream remote afterwards:
 cd ~/my-project
@@ -626,7 +626,7 @@ automation in v1, by design. For each repo:
    ```
 4. Repeat per repo. If you have many repos, scripting this loop is on
    you — v1 single-operator scope does not ship a bulk command. Iterate
-   over `ls /opt/github-backups/*.git` on the droplet to enumerate.
+   over `ls -d /opt/github-backups/*/*.git` on the droplet to enumerate.
 
 **Caveat:** `--mirror` push rewrites every ref on the destination. Only
 use this against a NEW empty repo. Do not run it against a repo someone
@@ -709,7 +709,7 @@ this section stale.
 | `droplet/Caddyfile.template` | Webhook trio: Caddy reverse-proxy template | phase-3 | required |
 | `droplet/github-backup-webhook.service` | Webhook trio: systemd unit | phase-3 | required |
 | `droplet/webhook-listener.js` | Webhook trio: Node listener | phase-3 | required |
-| `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection (cached) | phase-7 | required |
+| `droplet/lib/detect-account-type.sh` | Lib: User/Organization detection | phase-7 | required |
 | `droplet/lib/filter-repos.sh` | Lib: per-source allow/deny glob filter | phase-7 | required |
 | `droplet/lib/resolve-repo-endpoint.sh` | Lib: repo-list endpoint (private repos included) | phase-7 | required |
 

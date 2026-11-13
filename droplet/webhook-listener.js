@@ -20,8 +20,8 @@
 //     200 + "pong"        — ping event
 //     202 + JSON          — push accepted and dispatched to sync-one-repo.sh
 //     204                 — non-push, non-ping event acknowledged
-//     400                 — missing signature, bad JSON, missing owner/repo
-//     401                 — HMAC mismatch
+//     400                 — bad JSON, missing owner/repo, owner/repo outside [A-Za-z0-9._-]
+//     401                 — missing signature or HMAC mismatch
 //     403                 — repo excluded by that source's allow/deny globs
 //     404                 — owner not in GITHUB_SOURCES OR unknown path
 //     405                 — method other than POST on /webhook/github

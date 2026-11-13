@@ -33,7 +33,7 @@ export const required: ManifestEntry[] = [
   { path: "droplet/Caddyfile.template",            purpose: "Webhook trio: Caddy reverse-proxy template",  phase: "phase-3", destSubdir: "",     chmodExec: false },
   { path: "droplet/github-backup-webhook.service", purpose: "Webhook trio: systemd unit",                  phase: "phase-3", destSubdir: "",     chmodExec: false },
   { path: "droplet/webhook-listener.js",           purpose: "Webhook trio: Node listener",                 phase: "phase-3", destSubdir: "",     chmodExec: false },
-  { path: "droplet/lib/detect-account-type.sh",    purpose: "Lib: User/Organization detection (cached)",   phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
+  { path: "droplet/lib/detect-account-type.sh",    purpose: "Lib: User/Organization detection",            phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
   { path: "droplet/lib/filter-repos.sh",           purpose: "Lib: per-source allow/deny glob filter",      phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
   { path: "droplet/lib/resolve-repo-endpoint.sh", purpose: "Lib: repo-list endpoint (private repos included)", phase: "phase-7", destSubdir: "lib/", chmodExec: true  },
 ];
