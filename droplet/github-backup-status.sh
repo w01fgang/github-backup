@@ -179,7 +179,7 @@ compute_disk() {
     read -r DISK_FS DISK_SIZE_B DISK_USED_B DISK_PERCENT < <(
       df -P -B1 "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $1, $2, $3, int($3*100/$2)}'
     ) || true
-    MIRROR_B=$(du -sb "$BACKUP_DIR" 2>/dev/null | awk '{print $1}')
+    MIRROR_B=$(du -sbD "$BACKUP_DIR" 2>/dev/null | awk '{print $1}')
     MIRROR_B=${MIRROR_B:-0}
   else
     DISK_FS=""
@@ -312,7 +312,7 @@ emit_text() {
     jq -r '.[] | (if .action == "fail" then "  ✗ " else "  ✓ " end) + .action + " " + .name' <<<"$REPOS_JSON"
     if [[ -d "$BACKUP_DIR" ]]; then
       local mirror_count
-      mirror_count=$(find "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ')
+      mirror_count=$(find -L "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type d -name '*.git' 2>/dev/null | wc -l | tr -d ' ')
       if (( mirror_count > 0 )); then
         echo
         echo "Per-mirror disk usage:"
@@ -320,7 +320,7 @@ emit_text() {
         for d in "$BACKUP_DIR"/*/*.git; do
           [[ -d "$d" ]] || continue
           local sz
-          sz=$(du -sh "$d" 2>/dev/null | awk '{print $1}')
+          sz=$(du -shD "$d" 2>/dev/null | awk '{print $1}')
           printf '  %s  %s\n' "$sz" "${d#"$BACKUP_DIR"/}"
         done
       fi
